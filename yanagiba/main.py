@@ -168,8 +168,14 @@ class TradingBot:
                     "execution": plan.to_dict(),
                     "order": order.to_dict(),
                 })
-                # Update portfolio exposure
-                self.portfolio.total_exposure_pct += risk_assessment.adjusted_position_size
+                # Log order status prominently
+                logger.info(
+                    f"  ORDER STATUS: {order.status} | {plan.side.upper()} "
+                    f"{plan.position_size} {plan.symbol} @ {order.entry}"
+                )
+                # Only update exposure if order was actually placed
+                if order.status == "placed":
+                    self.portfolio.total_exposure_pct += risk_assessment.adjusted_position_size
 
             return {
                 "symbol": symbol,

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from yanagiba.models.config import TradingConfig
@@ -17,6 +16,31 @@ from yanagiba.models.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Minimum order quantities for common Binance Futures pairs
+MIN_QTY = {
+    "BTC/USDT": 0.001,
+    "ETH/USDT": 0.001,
+    "SOL/USDT": 0.01,
+    "ARB/USDT": 0.1,
+    "OP/USDT": 0.1,
+    "DOGE/USDT": 1.0,
+    "AVAX/USDT": 0.01,
+    "LINK/USDT": 0.01,
+    "POL/USDT": 0.1,
+    "APT/USDT": 0.01,
+    "GALA/USDT": 1.0,
+    "IMX/USDT": 0.1,
+    "AXS/USDT": 0.01,
+    "SAND/USDT": 1.0,
+    "MANA/USDT": 1.0,
+    "ENJ/USDT": 0.1,
+    "SUPER/USDT": 0.1,
+    "YGG/USDT": 0.1,
+}
+
+# Minimum notional value in USDT
+MIN_NOTIONAL = 5.0
 
 
 @dataclass
@@ -56,9 +80,28 @@ class ExecutionEngine:
     ) -> ExecutionPlan:
         side = "buy" if signal.direction == Direction.LONG else "sell"
 
-        # Position size in base currency value
+        # Position size: use leverage to get meaningful position from small account
+        # adjusted_position_size can be > 1.0 (e.g. 3.0 = 3x leverage)
         position_value = portfolio.total_value * risk.adjusted_position_size
         position_size = position_value / signal.entry if signal.entry > 0 else 0
+
+        # Enforce minimum quantity for the pair
+        min_qty = MIN_QTY.get(signal.asset, 0.001)
+        if 0 < position_size < min_qty:
+            # Scale up to minimum if margin allows (check leverage limit)
+            min_notional = min_qty * signal.entry
+            required_margin = min_notional / self.config.max_leverage
+            if required_margin <= portfolio.cash:
+                position_size = min_qty
+                logger.info(
+                    f"Scaled position to minimum {min_qty} {signal.asset} "
+                    f"(notional ${min_notional:.2f}, margin ~${required_margin:.2f})"
+                )
+            else:
+                logger.warning(
+                    f"Cannot meet minimum qty {min_qty} for {signal.asset}: "
+                    f"need ${required_margin:.2f} margin, have ${portfolio.cash:.2f}"
+                )
 
         # Take profit levels: split into partial TPs
         tp_levels = [signal.take_profit_1, signal.take_profit_2]
@@ -98,13 +141,33 @@ class ExecutionEngine:
 
         if exchange and not self.config.sandbox:
             try:
-                # Check minimum notional value ($5 on Binance Futures)
+                # Check minimum notional value
                 notional = plan.position_size * plan.entry
-                if notional < 5.0:
-                    order.status = "skipped: below minimum notional ($5)"
-                    logger.warning(f"Order too small: {notional:.2f} USDT (min $5)")
+                if notional < MIN_NOTIONAL:
+                    order.status = f"skipped: notional ${notional:.2f} below ${MIN_NOTIONAL}"
+                    logger.warning(f"Order too small: {notional:.2f} USDT (min ${MIN_NOTIONAL})")
                     return order
 
+                # Check minimum quantity
+                min_qty = MIN_QTY.get(plan.symbol, 0.001)
+                if plan.position_size < min_qty:
+                    order.status = f"skipped: qty {plan.position_size} below min {min_qty}"
+                    logger.warning(f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}")
+                    return order
+
+                # Set leverage on the exchange before placing order
+                leverage = int(min(self.config.max_leverage, 20))
+                try:
+                    await exchange.set_leverage(leverage, plan.symbol)
+                    logger.info(f"Leverage set to {leverage}x for {plan.symbol}")
+                except Exception as e:
+                    logger.warning(f"Could not set leverage (may already be set): {e}")
+
+                # Place market entry order
+                logger.info(
+                    f"Placing {plan.side.upper()} {plan.position_size} {plan.symbol} "
+                    f"(notional ${notional:.2f}, leverage {leverage}x)"
+                )
                 result = await exchange.create_order(
                     symbol=plan.symbol,
                     type="market",
@@ -112,31 +175,44 @@ class ExecutionEngine:
                     amount=plan.position_size,
                 )
                 order.status = "placed"
-                order.entry = float(result.get("average", plan.entry))
-                logger.info(f"Order placed: {result.get('id', 'unknown')} @ {order.entry}")
+                order.entry = float(result.get("average", result.get("price", plan.entry)) or plan.entry)
+                order_id = result.get("id", "unknown")
+                logger.info(f"ORDER PLACED: {order_id} | {plan.side.upper()} {plan.position_size} {plan.symbol} @ {order.entry}")
 
                 # Place stop loss as stop-market
-                await exchange.create_order(
-                    symbol=plan.symbol,
-                    type="stop_market",
-                    side="sell" if plan.side == "buy" else "buy",
-                    amount=plan.position_size,
-                    params={"stopPrice": plan.stop},
-                )
+                try:
+                    sl_side = "sell" if plan.side == "buy" else "buy"
+                    await exchange.create_order(
+                        symbol=plan.symbol,
+                        type="stop_market",
+                        side=sl_side,
+                        amount=plan.position_size,
+                        params={"stopPrice": plan.stop},
+                    )
+                    logger.info(f"Stop loss set at {plan.stop}")
+                except Exception as e:
+                    logger.error(f"Failed to set stop loss: {e}")
 
                 # Place take profits
                 for tp in plan.take_profit_levels:
-                    tp_size = plan.position_size / len(plan.take_profit_levels)
-                    await exchange.create_order(
-                        symbol=plan.symbol,
-                        type="limit",
-                        side="sell" if plan.side == "buy" else "buy",
-                        amount=tp_size,
-                        price=tp,
-                    )
+                    try:
+                        tp_size = round(plan.position_size / len(plan.take_profit_levels), 6)
+                        tp_side = "sell" if plan.side == "buy" else "buy"
+                        await exchange.create_order(
+                            symbol=plan.symbol,
+                            type="limit",
+                            side=tp_side,
+                            amount=tp_size,
+                            price=tp,
+                            params={"reduceOnly": True},
+                        )
+                        logger.info(f"Take profit set at {tp} (size {tp_size})")
+                    except Exception as e:
+                        logger.error(f"Failed to set TP at {tp}: {e}")
+
             except Exception as e:
                 order.status = f"error: {e}"
-                logger.error(f"Execution error: {e}")
+                logger.error(f"EXECUTION FAILED: {plan.side.upper()} {plan.position_size} {plan.symbol} — {e}")
         else:
             order.status = "simulated"
             logger.info(f"[PAPER] {plan.side.upper()} {plan.position_size} {plan.symbol} @ {plan.entry}")

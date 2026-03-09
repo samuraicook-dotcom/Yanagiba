@@ -64,7 +64,7 @@ class RiskManager:
                 reason="; ".join(reasons),
             )
 
-        # Calculate position size
+        # Calculate position size (as multiple of portfolio — >1.0 means leveraged)
         risk_per_trade = self.config.max_risk_per_trade
         max_loss = portfolio.total_value * risk_per_trade
 
@@ -76,9 +76,14 @@ class RiskManager:
         # Cap at max leverage
         position_size_pct = min(position_size_pct, self.config.max_leverage)
 
-        # Cap so total exposure doesn't exceed limit
-        remaining_room = self.config.max_portfolio_risk - portfolio.total_exposure_pct
-        position_size_pct = min(position_size_pct, remaining_room)
+        # Cap margin usage: each position uses (position_size_pct / leverage) of portfolio as margin
+        # Exposure tracks margin used, not notional — so leveraged positions still fit
+        leverage = min(position_size_pct, self.config.max_leverage) if position_size_pct > 1 else 1.0
+        margin_pct = position_size_pct / leverage if leverage > 0 else position_size_pct
+        remaining_margin = self.config.max_portfolio_risk - portfolio.total_exposure_pct
+        if margin_pct > remaining_margin:
+            # Scale down position to fit remaining margin
+            position_size_pct = remaining_margin * leverage
 
         if position_size_pct <= 0:
             return RiskAssessment(
