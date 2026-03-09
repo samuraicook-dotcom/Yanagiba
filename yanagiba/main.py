@@ -85,7 +85,7 @@ class TradingBot:
         await self.telegram.notify_cycle_start(timestamp, all_assets)
 
         for symbol in all_assets:
-            result = await self._process_asset(symbol, sentiment_report)
+            result = await self._process_asset(symbol, sentiment_report, timestamp)
             if result:
                 cycle_results.append(result)
 
@@ -98,7 +98,7 @@ class TradingBot:
         })
         return cycle_results
 
-    async def _process_asset(self, symbol: str, sentiment_report) -> dict | None:
+    async def _process_asset(self, symbol: str, sentiment_report, timestamp: str) -> dict | None:
         console.rule(f"[bold yellow]{symbol}")
 
         try:

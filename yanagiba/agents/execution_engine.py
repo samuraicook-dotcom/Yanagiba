@@ -98,28 +98,34 @@ class ExecutionEngine:
 
         if exchange and not self.config.sandbox:
             try:
+                # Check minimum notional value ($5 on Binance Futures)
+                notional = plan.position_size * plan.entry
+                if notional < 5.0:
+                    order.status = "skipped: below minimum notional ($5)"
+                    logger.warning(f"Order too small: {notional:.2f} USDT (min $5)")
+                    return order
+
                 result = await exchange.create_order(
                     symbol=plan.symbol,
-                    type="limit",
+                    type="market",
                     side=plan.side,
                     amount=plan.position_size,
-                    price=plan.entry,
                 )
                 order.status = "placed"
-                logger.info(f"Order placed: {result.get('id', 'unknown')}")
+                order.entry = float(result.get("average", plan.entry))
+                logger.info(f"Order placed: {result.get('id', 'unknown')} @ {order.entry}")
 
                 # Place stop loss as stop-market
                 await exchange.create_order(
                     symbol=plan.symbol,
-                    type="stop",
+                    type="stop_market",
                     side="sell" if plan.side == "buy" else "buy",
                     amount=plan.position_size,
-                    price=plan.stop,
                     params={"stopPrice": plan.stop},
                 )
 
                 # Place take profits
-                for i, tp in enumerate(plan.take_profit_levels):
+                for tp in plan.take_profit_levels:
                     tp_size = plan.position_size / len(plan.take_profit_levels)
                     await exchange.create_order(
                         symbol=plan.symbol,
