@@ -20,16 +20,15 @@ class TradingConfig:
     assets: list[str] = field(
         default_factory=lambda: [
             "BTC/USDT", "ETH/USDT", "SOL/USDT", "ARB/USDT", "OP/USDT",
-            "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "MATIC/USDT", "APT/USDT",
+            "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "POL/USDT", "APT/USDT",
         ]
     )
 
     # Gaming / narrative tokens (GTA 6 launch hype, gaming sector)
     gaming_tokens: list[str] = field(
         default_factory=lambda: [
-            "GALA/USDT", "IMX/USDT", "RONIN/USDT", "PIXEL/USDT",
-            "SUPER/USDT", "YGG/USDT", "SAND/USDT", "AXS/USDT", "MANA/USDT",
-            "ENJ/USDT", "ILV/USDT", "BEAM/USDT",
+            "GALA/USDT", "IMX/USDT", "AXS/USDT", "SAND/USDT",
+            "MANA/USDT", "ENJ/USDT", "SUPER/USDT", "YGG/USDT",
         ]
     )
     enable_gaming_sector: bool = True
