@@ -177,8 +177,16 @@ class TradingBot:
                     f"{plan.position_size} {plan.symbol} @ {order.entry}"
                 )
                 # Only update exposure if order was actually placed
+                # Track margin used, not notional (adjusted_position_size is leveraged)
                 if order.status == "placed":
-                    self.portfolio.total_exposure_pct += risk_assessment.adjusted_position_size
+                    leverage = max(risk_assessment.adjusted_position_size, 1.0)
+                    margin_used = risk_assessment.adjusted_position_size / leverage
+                    self.portfolio.total_exposure_pct += margin_used
+                    self.portfolio.cash -= (plan.position_size * plan.entry) / self.config.max_leverage
+                    logger.info(
+                        f"  Margin used: {margin_used:.1%} of portfolio | "
+                        f"Total exposure: {self.portfolio.total_exposure_pct:.1%}"
+                    )
 
             return {
                 "symbol": symbol,
