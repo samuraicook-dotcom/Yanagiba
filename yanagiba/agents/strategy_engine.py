@@ -64,9 +64,10 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return None
 
-        # EMA pullback: price near fast EMA in uptrend (widened entry zone)
+        # EMA pullback: price near fast EMA in uptrend (ATR-scaled zone)
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            pullback = abs(close - latest["ema_fast"]) / close < 0.01  # wider zone
+            atr_zone = min(atr_val / close * 1.5, 0.02)  # dynamic zone based on volatility
+            pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             above_mid = close > latest["ema_mid"]
             rsi_ok = not np.isnan(latest["rsi"]) and 40 < latest["rsi"] < 75
 
@@ -92,7 +93,8 @@ class StrategyEngine:
             return None
 
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            pullback = abs(close - latest["ema_fast"]) / close < 0.01
+            atr_zone = min(atr_val / close * 1.5, 0.02)
+            pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             below_mid = close < latest["ema_mid"]
             rsi_ok = not np.isnan(latest["rsi"]) and 25 < latest["rsi"] < 60
 
@@ -118,10 +120,10 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return signals
 
-        # Mean reversion: Bollinger band proximity (widened trigger zone)
+        # Mean reversion: Bollinger band proximity (wider zone = more setups)
         if not np.isnan(latest["bb_lower"]) and not np.isnan(latest["bb_upper"]):
-            # Long near lower band
-            if close <= latest["bb_lower"] * 1.005:
+            # Long near lower band (1.5% zone above lower band)
+            if close <= latest["bb_lower"] * 1.015:
                 sl = close - 1.0 * atr_val  # tighter SL
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_upper"]
@@ -132,8 +134,8 @@ class StrategyEngine:
                     risk_reward=round(rr, 2), confidence_score=7.0,
                     strategy="bb_mean_reversion_long", timeframe=tf,
                 ))
-            # Short near upper band
-            elif close >= latest["bb_upper"] * 0.995:
+            # Short near upper band (1.5% zone below upper band)
+            elif close >= latest["bb_upper"] * 0.985:
                 sl = close + 1.0 * atr_val
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_lower"]
@@ -145,10 +147,11 @@ class StrategyEngine:
                     strategy="bb_mean_reversion_short", timeframe=tf,
                 ))
 
-        # VWAP bounce (widened zone, bigger targets)
+        # VWAP bounce (ATR-scaled zone, bigger targets)
         if not np.isnan(latest["vwap"]):
             vwap_dist = abs(close - latest["vwap"]) / close
-            if vwap_dist < 0.005:  # wider VWAP zone
+            vwap_zone = min(atr_val / close, 0.015)  # dynamic zone based on volatility
+            if vwap_dist < vwap_zone:
                 direction = Direction.LONG if latest.get("volume_delta", 0) > 0 else Direction.SHORT
                 if direction == Direction.LONG:
                     sl = close - 1.0 * atr_val
@@ -224,10 +227,11 @@ class StrategyEngine:
 
         ob_imbalance = order_book.get("imbalance", 0) if order_book else 0
 
-        # LONG scalp
+        # LONG scalp: RSI in sweet spot (not overbought), strong order book
         if (
             close > vwap_val
             and rsi_val > self.config.rsi_long_threshold
+            and rsi_val < 70  # reject overbought — don't chase
             and vd > 0
             and ob_imbalance > 0.1
         ):
@@ -235,7 +239,9 @@ class StrategyEngine:
             tp1 = close * (1 + self.config.scalp_take_profit_min)
             tp2 = close * (1 + self.config.scalp_take_profit_max)
             rr = self.config.scalp_take_profit_min / self.config.scalp_stop_loss
-            confidence = min(5 + abs(ob_imbalance) * 3 + (rsi_val - 55) / 10, 10)
+            # Confidence: order book strength + RSI in sweet zone (55-65 best)
+            rsi_quality = max(0, 1.0 - abs(rsi_val - 60) / 15)  # peaks at RSI 60
+            confidence = min(5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10)
             return TradeSignal(
                 asset=symbol, direction=Direction.LONG, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
@@ -243,10 +249,11 @@ class StrategyEngine:
                 strategy="scalp_momentum_long", timeframe=tf,
             )
 
-        # SHORT scalp
+        # SHORT scalp: RSI in sweet spot (not oversold), weak order book
         if (
             close < vwap_val
             and rsi_val < self.config.rsi_short_threshold
+            and rsi_val > 30  # reject oversold — don't chase
             and vd < 0
             and ob_imbalance < -0.1
         ):
@@ -254,7 +261,9 @@ class StrategyEngine:
             tp1 = close * (1 - self.config.scalp_take_profit_min)
             tp2 = close * (1 - self.config.scalp_take_profit_max)
             rr = self.config.scalp_take_profit_min / self.config.scalp_stop_loss
-            confidence = min(5 + abs(ob_imbalance) * 3 + (45 - rsi_val) / 10, 10)
+            # Confidence: order book weakness + RSI in sweet zone (35-45 best)
+            rsi_quality = max(0, 1.0 - abs(rsi_val - 40) / 15)  # peaks at RSI 40
+            confidence = min(5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10)
             return TradeSignal(
                 asset=symbol, direction=Direction.SHORT, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,

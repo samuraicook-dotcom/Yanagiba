@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -152,7 +153,9 @@ class ExecutionEngine:
                 min_qty = MIN_QTY.get(plan.symbol, 0.001)
                 if plan.position_size < min_qty:
                     order.status = f"skipped: qty {plan.position_size} below min {min_qty}"
-                    logger.warning(f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}")
+                    logger.warning(
+                        f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}"
+                    )
                     return order
 
                 # Load markets if not loaded (needed for leverage + proper symbol resolution)
@@ -187,28 +190,57 @@ class ExecutionEngine:
                     amount=plan.position_size,
                 )
                 order.status = "placed"
-                order.entry = float(result.get("average", result.get("price", plan.entry)) or plan.entry)
+                fill = result.get("average", result.get("price", plan.entry))
+                order.entry = float(fill or plan.entry)
                 order_id = result.get("id", "unknown")
-                logger.info(f"ORDER PLACED: {order_id} | {plan.side.upper()} {plan.position_size} {plan.symbol} @ {order.entry}")
+                logger.info(
+                    f"ORDER PLACED: {order_id} | {plan.side.upper()} "
+                    f"{plan.position_size} {plan.symbol} @ {order.entry}"
+                )
 
-                # Place stop loss as stop-market
-                try:
-                    sl_side = "sell" if plan.side == "buy" else "buy"
-                    await exchange.create_order(
-                        symbol=futures_symbol,
-                        type="stop_market",
-                        side=sl_side,
-                        amount=plan.position_size,
-                        params={"stopPrice": plan.stop},
-                    )
-                    logger.info(f"Stop loss set at {plan.stop}")
-                except Exception as e:
-                    logger.error(f"Failed to set stop loss: {e}")
-
-                # Place take profits
-                for tp in plan.take_profit_levels:
+                # CRITICAL: Place stop loss — if this fails, close position immediately
+                sl_side = "sell" if plan.side == "buy" else "buy"
+                sl_placed = False
+                for attempt in range(3):
                     try:
-                        tp_size = round(plan.position_size / len(plan.take_profit_levels), 6)
+                        await exchange.create_order(
+                            symbol=futures_symbol,
+                            type="stop_market",
+                            side=sl_side,
+                            amount=plan.position_size,
+                            params={"stopPrice": plan.stop},
+                        )
+                        logger.info(f"Stop loss set at {plan.stop}")
+                        sl_placed = True
+                        break
+                    except Exception as e:
+                        logger.error(f"SL attempt {attempt + 1}/3 failed: {e}")
+                        if attempt < 2:
+                            await asyncio.sleep(1)
+
+                if not sl_placed:
+                    # EMERGENCY: Close position — no stop loss = unlimited risk
+                    logger.error("EMERGENCY: Closing position — stop loss could not be placed!")
+                    try:
+                        await exchange.create_order(
+                            symbol=futures_symbol, type="market",
+                            side=sl_side, amount=plan.position_size,
+                            params={"reduceOnly": True},
+                        )
+                        order.status = "closed: stop loss failed"
+                    except Exception as e2:
+                        logger.error(f"CRITICAL: Could not close position either: {e2}")
+                        order.status = "error: no stop loss, close failed"
+                    self.executed_orders.append(order.to_dict())
+                    return order
+
+                # Place take profits — weighted split (60% TP1, 40% TP2)
+                tp_weights = [0.6, 0.4]
+                for i, tp in enumerate(plan.take_profit_levels):
+                    try:
+                        n_tps = len(plan.take_profit_levels)
+                        weight = tp_weights[i] if i < len(tp_weights) else 1.0 / n_tps
+                        tp_size = round(plan.position_size * weight, 6)
                         tp_side = "sell" if plan.side == "buy" else "buy"
                         await exchange.create_order(
                             symbol=futures_symbol,
@@ -218,19 +250,58 @@ class ExecutionEngine:
                             price=tp,
                             params={"reduceOnly": True},
                         )
-                        logger.info(f"Take profit set at {tp} (size {tp_size})")
+                        logger.info(f"Take profit set at {tp} (size {tp_size}, {weight:.0%})")
                     except Exception as e:
                         logger.error(f"Failed to set TP at {tp}: {e}")
 
+                # Trailing stop: if enabled, set callback rate on exchange
+                if self.config.use_trailing_stop:
+                    try:
+                        activation_price = self._trailing_activation_price(
+                            plan.side, order.entry,
+                            self.config.trailing_stop_activation,
+                        )
+                        callback_rate = self.config.trailing_stop_callback * 100  # Binance uses %
+                        await exchange.create_order(
+                            symbol=futures_symbol,
+                            type="TRAILING_STOP_MARKET",
+                            side=sl_side,
+                            amount=plan.position_size,
+                            params={
+                                "activationPrice": activation_price,
+                                "callbackRate": round(callback_rate, 1),
+                                "reduceOnly": True,
+                            },
+                        )
+                        logger.info(
+                            f"Trailing stop set: activates at {activation_price:.2f}, "
+                            f"callback {callback_rate:.1f}%"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Trailing stop not supported or failed: {e}")
+
             except Exception as e:
                 order.status = f"error: {e}"
-                logger.error(f"EXECUTION FAILED: {plan.side.upper()} {plan.position_size} {plan.symbol} — {e}")
+                logger.error(
+                    f"EXECUTION FAILED: {plan.side.upper()} "
+                    f"{plan.position_size} {plan.symbol} — {e}"
+                )
         else:
             order.status = "simulated"
-            logger.info(f"[PAPER] {plan.side.upper()} {plan.position_size} {plan.symbol} @ {plan.entry}")
+            logger.info(
+                f"[PAPER] {plan.side.upper()} {plan.position_size} "
+                f"{plan.symbol} @ {plan.entry}"
+            )
 
         self.executed_orders.append(order.to_dict())
         return order
+
+    @staticmethod
+    def _trailing_activation_price(side: str, entry: float, activation_pct: float) -> float:
+        """Calculate price at which trailing stop activates."""
+        if side == "buy":
+            return round(entry * (1 + activation_pct), 6)
+        return round(entry * (1 - activation_pct), 6)
 
     def get_execution_summary(self) -> dict:
         return {

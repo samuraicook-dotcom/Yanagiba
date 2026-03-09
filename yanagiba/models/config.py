@@ -42,22 +42,25 @@ class TradingConfig:
     )
 
     # Risk limits (micro account ~$50, needs leverage to meet minimums)
-    max_portfolio_risk: float = 0.90  # 90% max margin usage — allows 3-4 trades at 20x
-    max_risk_per_trade: float = 0.05  # 5% risk per trade ($2.50 max loss per trade)
+    max_portfolio_risk: float = 0.60  # 60% max margin — room for 3 trades + buffer
+    max_risk_per_trade: float = 0.03  # 3% risk per trade ($1.50 on $50 — survive 10 losses)
     max_leverage: float = 20.0  # up to 20x leverage (needed to meet $5 min notional)
-    daily_loss_limit: float = 0.10  # 10% daily loss cap ($5)
-    scalp_stop_loss: float = 0.005  # 0.5% for scalping
-    scalp_take_profit_min: float = 0.015  # 1.5% TP1
-    scalp_take_profit_max: float = 0.03  # 3% TP2
+    daily_loss_limit: float = 0.06  # 6% daily loss cap ($3 on $50 — live to trade tomorrow)
+    scalp_stop_loss: float = 0.004  # 0.4% for scalping (tighter = more trades survive)
+    scalp_take_profit_min: float = 0.012  # 1.2% TP1 (3:1 R:R with 0.4% SL)
+    scalp_take_profit_max: float = 0.025  # 2.5% TP2
     scalp_position_size: float = 0.10  # 10% of portfolio per scalp ($5)
+
+    # R:R and confidence thresholds
+    min_risk_reward: float = 1.8  # minimum R:R to take a trade (need ~36% win rate)
 
     # Indicator params
     rsi_period: int = 14
-    rsi_long_threshold: float = 52.0
-    rsi_short_threshold: float = 48.0
-    ema_fast: int = 20
-    ema_mid: int = 50
-    ema_slow: int = 200
+    rsi_long_threshold: float = 53.0  # slightly above neutral
+    rsi_short_threshold: float = 47.0  # slightly below neutral
+    ema_fast: int = 9  # faster EMA for scalping responsiveness
+    ema_mid: int = 21
+    ema_slow: int = 55  # shorter slow EMA — 200 is too laggy for micro account
     bb_period: int = 20
     bb_std: float = 2.0
     macd_fast: int = 12
@@ -66,4 +69,6 @@ class TradingConfig:
 
     # Execution
     use_trailing_stop: bool = True
-    min_confidence: float = 4.0  # lower bar = more trades with small account
+    trailing_stop_activation: float = 0.008  # activate trailing after 0.8% profit
+    trailing_stop_callback: float = 0.003  # trail by 0.3%
+    min_confidence: float = 5.0  # require decent confidence to trade

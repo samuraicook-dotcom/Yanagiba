@@ -23,11 +23,13 @@ from rich.table import Table
 
 from yanagiba.agents.execution_engine import ExecutionEngine
 from yanagiba.agents.market_analyst import MarketAnalyst
+from yanagiba.agents.position_tracker import PositionTracker
 from yanagiba.agents.risk_manager import RiskManager
 from yanagiba.agents.strategy_engine import StrategyEngine
 from yanagiba.data.market_data import MarketDataProvider
 from yanagiba.data.sentiment import SentimentTracker
 from yanagiba.data.telegram import TelegramNotifier
+from yanagiba.data.trade_journal import TradeJournal
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import PortfolioState
 
@@ -53,6 +55,8 @@ class TradingBot:
         self.strategy = StrategyEngine(self.config)
         self.risk = RiskManager(self.config)
         self.execution = ExecutionEngine(self.config)
+        self.position_tracker = PositionTracker()
+        self.journal = TradeJournal()
         self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = PortfolioState(total_value=49.0, cash=49.0)
         self._running = False
@@ -66,6 +70,16 @@ class TradingBot:
         timestamp = datetime.utcnow().isoformat()
 
         console.rule(f"[bold cyan]Yanagiba Cycle — {timestamp}")
+
+        # 0. Sync open positions with exchange (detect closed trades)
+        if not self.config.sandbox:
+            events = await self.position_tracker.sync_with_exchange(
+                self.data_provider.exchange, self.portfolio,
+            )
+            for ev in events:
+                logger.info(f"POSITION EVENT: {ev}")
+            if events:
+                self.journal.update_drawdown(self.portfolio.total_value)
 
         # 1. Fetch geopolitical / news sentiment
         logger.info("AGENT 1a: Fetching geopolitical & news sentiment...")
@@ -119,8 +133,8 @@ class TradingBot:
 
             analysis = self.analyst.analyze(ohlcv_data, order_book, funding_rate)
 
-            # Blend geopolitical sentiment into analysis
-            geo_adjustment = sentiment_report.overall_score * 0.3
+            # Blend geopolitical sentiment into analysis (meaningful weight)
+            geo_adjustment = sentiment_report.overall_score * 0.7
             analysis.sentiment_score = max(
                 -10, min(10, analysis.sentiment_score + geo_adjustment)
             )
@@ -139,11 +153,13 @@ class TradingBot:
 
             self._print_signals(signals)
 
-            # 3. RISK MANAGER: Evaluate each signal
+            # 3. RISK MANAGER: Evaluate each signal (pass volatility for position scaling)
             logger.info(f"AGENT 3: Risk Manager evaluating {len(signals)} signals...")
             approved_trades = []
             for sig in signals:
-                risk_assessment = self.risk.evaluate(sig, self.portfolio)
+                risk_assessment = self.risk.evaluate(
+                    sig, self.portfolio, volatility_level=analysis.volatility_level,
+                )
                 if risk_assessment.approved:
                     approved_trades.append((sig, risk_assessment))
                     logger.info(
@@ -189,6 +205,23 @@ class TradingBot:
                         f"Total exposure: {self.portfolio.total_exposure_pct:.1%} | "
                         f"Cash: ${self.portfolio.cash:.2f}"
                     )
+                    # Track position for monitoring
+                    self.position_tracker.add_position(
+                        symbol=sig.asset, side=plan.side,
+                        entry_price=order.entry, quantity=plan.position_size,
+                        margin_usd=margin_usd, stop_loss=sig.stop_loss,
+                        take_profits=[sig.take_profit_1, sig.take_profit_2],
+                    )
+
+                # Log to trade journal
+                self.journal.log_trade(
+                    symbol=sig.asset, direction=sig.direction.value,
+                    strategy=sig.strategy, entry=order.entry,
+                    stop_loss=sig.stop_loss, take_profit=sig.take_profit_1,
+                    position_size=plan.position_size,
+                    confidence=sig.confidence_score,
+                    risk_reward=sig.risk_reward, status=order.status,
+                )
 
             return {
                 "symbol": symbol,
@@ -254,14 +287,26 @@ class TradingBot:
         table.add_row("Cash", f"${self.portfolio.cash:,.2f}")
         table.add_row("Exposure", f"{self.portfolio.total_exposure_pct:.2%}")
         table.add_row("Daily P&L", f"{self.portfolio.daily_pnl:+.2f}")
-        exec_summary = self.execution.get_execution_summary()
-        table.add_row("Trades Executed", str(exec_summary["executed_orders"]))
+
+        # Position tracker stats
+        pos_summary = self.position_tracker.get_summary()
+        table.add_row("Open Positions", str(pos_summary["open_positions"]))
+        table.add_row("Open Margin", f"${pos_summary['open_margin']:.2f}")
+
+        # Trade journal stats
+        perf = self.journal.get_performance()
+        table.add_row("Total Trades", str(perf["total_trades"]))
+        if perf["total_trades"] > 0:
+            table.add_row("Win Rate", f"{perf['win_rate']}%")
+            table.add_row("Total PnL", f"${perf['total_pnl']:+.2f}")
+            table.add_row("Max Drawdown", f"{perf['max_drawdown']}%")
+            table.add_row("Best Strategy", perf["best_strategy"])
         console.print(table)
 
     async def run_loop(self, interval_seconds: int = 180):
         """Run continuous trading loop."""
         self._running = True
-        console.print(f"[bold green]Yanagiba Trading Bot started[/]")
+        console.print("[bold green]Yanagiba Trading Bot started[/]")
         console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
         console.print(f"  Assets: {', '.join(self.config.assets)}")
         console.print(f"  Interval: {interval_seconds}s")

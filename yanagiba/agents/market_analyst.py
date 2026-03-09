@@ -104,8 +104,8 @@ class MarketAnalyst:
         elif recent_vd < 0:
             score -= 1
 
-        # Weight shorter timeframes more for scalping
-        weight = {"1m": 0.5, "3m": 0.6, "5m": 0.7, "15m": 0.8, "1h": 1.0, "4h": 1.2, "1d": 1.5}
+        # Weight shorter timeframes MORE for scalping (this is an intraday bot)
+        weight = {"1m": 1.4, "3m": 1.3, "5m": 1.2, "15m": 1.0, "1h": 0.8, "4h": 0.6, "1d": 0.4}
         return score * weight.get(timeframe, 1.0)
 
     def _classify_regime(

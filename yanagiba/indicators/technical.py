@@ -56,11 +56,13 @@ def volume_delta(df: pd.DataFrame) -> pd.Series:
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """ATR using Wilder's smoothing (RMA) — more responsive than SMA."""
     high_low = df["high"] - df["low"]
     high_close = (df["high"] - df["close"].shift()).abs()
     low_close = (df["low"] - df["close"].shift()).abs()
     true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    return true_range.rolling(window=period).mean()
+    # Wilder's RMA = EWM with alpha=1/period (equivalent to span=2*period-1)
+    return true_range.ewm(span=2 * period - 1, adjust=False).mean()
 
 
 def compute_all(df: pd.DataFrame, config=None) -> pd.DataFrame:

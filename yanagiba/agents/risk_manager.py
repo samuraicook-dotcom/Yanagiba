@@ -18,7 +18,8 @@ class RiskManager:
         self.config = config or TradingConfig()
 
     def evaluate(
-        self, signal: TradeSignal, portfolio: PortfolioState
+        self, signal: TradeSignal, portfolio: PortfolioState,
+        volatility_level: float = 0.5,
     ) -> RiskAssessment:
         reasons: list[str] = []
 
@@ -42,9 +43,10 @@ class RiskManager:
                 reason=f"Portfolio exposure {portfolio.total_exposure_pct:.1%} exceeds limit",
             )
 
-        # Check risk/reward (lowered for aggressive mode)
-        if signal.risk_reward < 1.3:
-            reasons.append(f"R:R {signal.risk_reward} below 1.3 threshold")
+        # Check risk/reward
+        min_rr = self.config.min_risk_reward
+        if signal.risk_reward < min_rr:
+            reasons.append(f"R:R {signal.risk_reward} below {min_rr} threshold")
             return RiskAssessment(
                 approved=False,
                 adjusted_position_size=0,
@@ -55,7 +57,9 @@ class RiskManager:
 
         # Check confidence
         if signal.confidence_score < self.config.min_confidence:
-            reasons.append(f"Confidence {signal.confidence_score} below {self.config.min_confidence}")
+            reasons.append(
+                f"Confidence {signal.confidence_score} below {self.config.min_confidence}"
+            )
             return RiskAssessment(
                 approved=False,
                 adjusted_position_size=0,
@@ -65,7 +69,9 @@ class RiskManager:
             )
 
         # Calculate position size (as multiple of portfolio — >1.0 means leveraged)
-        risk_per_trade = self.config.max_risk_per_trade
+        # Scale risk down in high volatility — protect capital when markets are wild
+        vol_scale = max(0.3, 1.0 - volatility_level)  # high vol = smaller position
+        risk_per_trade = self.config.max_risk_per_trade * vol_scale
         max_loss = portfolio.total_value * risk_per_trade
 
         entry = signal.entry
