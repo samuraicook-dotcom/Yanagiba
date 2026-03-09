@@ -27,7 +27,9 @@ class MarketDataProvider:
         exchange_class = getattr(ccxt, exchange_id)
         options: dict = {"enableRateLimit": True}
         if market_type == "future":
-            options["defaultType"] = "future"
+            # Binance USDM perpetual futures use "swap" in ccxt
+            options["defaultType"] = "swap"
+            options["options"] = {"defaultType": "swap"}
         if api_key:
             options["apiKey"] = api_key
         if api_secret:
@@ -35,6 +37,12 @@ class MarketDataProvider:
         self.exchange: ccxt.Exchange = exchange_class(options)
         if sandbox:
             self.exchange.set_sandbox_mode(True)
+        self._markets_loaded = False
+
+    async def load_markets(self):
+        if not self._markets_loaded:
+            await self.exchange.load_markets()
+            self._markets_loaded = True
 
     async def close(self):
         await self.exchange.close()

@@ -59,6 +59,9 @@ class TradingBot:
 
     async def run_cycle(self) -> list[dict]:
         """Run one full analysis + trading cycle across all assets."""
+        # Ensure markets are loaded (needed for futures symbol resolution)
+        await self.data_provider.load_markets()
+
         cycle_results = []
         timestamp = datetime.utcnow().isoformat()
 

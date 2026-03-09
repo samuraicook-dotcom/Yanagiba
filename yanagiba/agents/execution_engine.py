@@ -155,11 +155,23 @@ class ExecutionEngine:
                     logger.warning(f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}")
                     return order
 
+                # Load markets if not loaded (needed for leverage + proper symbol resolution)
+                if not exchange.markets:
+                    await exchange.load_markets()
+
+                # Resolve the futures symbol (e.g. BTC/USDT -> BTC/USDT:USDT)
+                futures_symbol = plan.symbol
+                swap_symbol = f"{plan.symbol}:USDT"
+                if swap_symbol in exchange.markets:
+                    futures_symbol = swap_symbol
+                elif plan.symbol not in exchange.markets:
+                    logger.warning(f"Symbol {plan.symbol} not found in exchange markets")
+
                 # Set leverage on the exchange before placing order
                 leverage = int(min(self.config.max_leverage, 20))
                 try:
-                    await exchange.set_leverage(leverage, plan.symbol)
-                    logger.info(f"Leverage set to {leverage}x for {plan.symbol}")
+                    await exchange.set_leverage(leverage, futures_symbol)
+                    logger.info(f"Leverage set to {leverage}x for {futures_symbol}")
                 except Exception as e:
                     logger.warning(f"Could not set leverage (may already be set): {e}")
 
@@ -169,7 +181,7 @@ class ExecutionEngine:
                     f"(notional ${notional:.2f}, leverage {leverage}x)"
                 )
                 result = await exchange.create_order(
-                    symbol=plan.symbol,
+                    symbol=futures_symbol,
                     type="market",
                     side=plan.side,
                     amount=plan.position_size,
@@ -183,7 +195,7 @@ class ExecutionEngine:
                 try:
                     sl_side = "sell" if plan.side == "buy" else "buy"
                     await exchange.create_order(
-                        symbol=plan.symbol,
+                        symbol=futures_symbol,
                         type="stop_market",
                         side=sl_side,
                         amount=plan.position_size,
@@ -199,7 +211,7 @@ class ExecutionEngine:
                         tp_size = round(plan.position_size / len(plan.take_profit_levels), 6)
                         tp_side = "sell" if plan.side == "buy" else "buy"
                         await exchange.create_order(
-                            symbol=plan.symbol,
+                            symbol=futures_symbol,
                             type="limit",
                             side=tp_side,
                             amount=tp_size,
