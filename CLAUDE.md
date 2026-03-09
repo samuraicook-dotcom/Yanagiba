@@ -2,72 +2,65 @@
 
 ## Project Overview
 
-Yanagiba is a new project under `samuraicook-dotcom`. This repository is in its initial setup phase.
-
-> **Note:** This file should be updated as the project evolves — add build commands, test instructions, architecture details, and coding conventions as they are established.
-
-## Repository State
-
-- **Status:** Freshly initialized, no application code yet
-- **Primary branch:** `main` (to be established)
+Yanagiba is an institutional-grade quantitative crypto trading bot with a multi-agent architecture.
 
 ## Getting Started
 
-Once the project has code, document the following here:
+- **Language:** Python 3.11+
+- **Install:** `pip install -e .` or `pip install -e ".[dev]"`
+- **Run (paper trading):** `python -m yanagiba.main`
+- **Run (live):** `python -m yanagiba.main --live`
+- **Options:** `--exchange binance|bybit` `--interval 60`
+- **Lint:** `ruff check yanagiba/`
 
-- Language and runtime version requirements
-- How to install dependencies
-- How to build the project
-- How to run tests
-- How to run linters/formatters
+## Architecture
 
-## Development Workflow
+4-agent pipeline — every trade passes through all agents sequentially:
 
-### Branching
-
-- Feature branches should use descriptive names (e.g., `feature/add-auth`, `fix/parsing-bug`)
-- Claude Code branches use the `claude/` prefix
-
-### Commits
-
-- Write clear, concise commit messages
-- Use imperative mood (e.g., "Add feature" not "Added feature")
-- Keep commits focused — one logical change per commit
-
-### Pull Requests
-
-- PRs should include a summary and test plan
-- Link related issues when applicable
-
-## Code Conventions
-
-> Update this section once the project's language and framework are chosen.
-
-- Prefer clarity over cleverness
-- Keep functions small and focused
-- Follow the project's established patterns — read existing code before adding new code
-- Do not add unnecessary abstractions, comments, or error handling beyond what is needed
+1. **Market Analyst** — regime detection (trending/ranging/volatile), sentiment scoring, geopolitical risk
+2. **Strategy Engine** — signal generation (momentum, mean reversion, scalping, liquidity sweeps)
+3. **Risk Manager** — approval gate (R:R, exposure, confidence thresholds)
+4. **Execution Engine** — order placement (limit entries, stop-market SL, partial TPs)
 
 ## Project Structure
 
-> Update this section as directories and modules are added.
-
 ```
-Yanagiba/
-├── CLAUDE.md          # This file — AI assistant guide
-└── (project files)    # To be added
+yanagiba/
+├── main.py                    # Orchestrator + CLI entry point
+├── models/
+│   ├── types.py               # Core data types (signals, regimes, orders)
+│   └── config.py              # Trading configuration
+├── data/
+│   ├── market_data.py         # ccxt exchange data provider
+│   └── sentiment.py           # Geopolitical & news sentiment tracker
+├── indicators/
+│   └── technical.py           # RSI, MACD, VWAP, BB, EMA, ATR, volume delta
+├── agents/
+│   ├── market_analyst.py      # Agent 1: Market regime + sentiment
+│   ├── strategy_engine.py     # Agent 2: Signal generation
+│   ├── risk_manager.py        # Agent 3: Risk gate
+│   └── execution_engine.py    # Agent 4: Order execution
 ```
 
-## Testing
+## Risk Rules
 
-> Document test commands and conventions here once tests are in place.
+- Max 1% risk per trade
+- Max 10% portfolio exposure
+- Max 3x leverage
+- 3% daily loss limit
+- Scalp: 0.5% SL, 1-2% TP
 
-## CI/CD
+## Code Conventions
 
-> Document CI/CD pipeline details here once configured.
+- Python 3.11+, type hints, dataclasses
+- Async-first (ccxt async, aiohttp)
+- All outputs structured as JSON-serializable dicts
+- Ruff for linting
 
-## Key Decisions & Context
+## Key Decisions
 
-Use this section to record important architectural decisions, trade-offs, or context that would help an AI assistant (or new contributor) understand why things are the way they are.
-
-- *No decisions recorded yet — update as the project progresses.*
+- **ccxt** for exchange abstraction (supports 100+ exchanges, spot + futures)
+- **Sandbox mode by default** — must explicitly opt into live trading
+- **Geopolitical tracking** via free APIs (Fear & Greed, CoinGecko trending, CryptoPanic)
+- **All trading pairs available** — configurable via TradingConfig.assets
+- **Futures supported** — ccxt handles both spot and futures markets
