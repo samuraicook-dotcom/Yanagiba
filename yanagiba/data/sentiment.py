@@ -32,6 +32,19 @@ BULLISH_KEYWORDS = [
     "bull run", "all time high", "ath", "rally",
 ]
 
+# Gaming sector / GTA 6 narrative keywords
+GAMING_BULLISH_KEYWORDS = [
+    "gta 6", "gta vi", "rockstar games", "game launch", "gaming token",
+    "play to earn", "p2e", "metaverse", "virtual world", "nft gaming",
+    "gaming partnership", "aaa game", "blockchain gaming",
+    "immutable", "gala games", "ronin network",
+]
+
+GAMING_BEARISH_KEYWORDS = [
+    "game delay", "launch postponed", "gaming crash", "p2e dead",
+    "gaming token dump", "metaverse dead",
+]
+
 # Geopolitical hotspots to track
 GEO_WATCHLIST = [
     "russia ukraine", "israel gaza", "china taiwan",
@@ -45,20 +58,24 @@ class SentimentReport:
     overall_score: float  # -10 to +10
     geo_score: float  # geopolitical risk score
     news_score: float  # general news sentiment
-    fear_greed_index: int | None  # 0-100
+    gaming_score: float = 0.0  # gaming sector sentiment (GTA 6, P2E, metaverse)
+    fear_greed_index: int | None = None  # 0-100
     key_events: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
     opportunities: list[str] = field(default_factory=list)
+    gaming_catalysts: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "overall_score": self.overall_score,
             "geo_score": self.geo_score,
             "news_score": self.news_score,
+            "gaming_score": self.gaming_score,
             "fear_greed_index": self.fear_greed_index,
             "key_events": self.key_events,
             "risk_flags": self.risk_flags,
             "opportunities": self.opportunities,
+            "gaming_catalysts": self.gaming_catalysts,
         }
 
 
@@ -81,16 +98,18 @@ class SentimentTracker:
 
     async def get_report(self) -> SentimentReport:
         """Gather sentiment from all available sources."""
-        fear_greed, geo_events, news_sentiment = await asyncio.gather(
+        fear_greed, geo_events, news_sentiment, gaming = await asyncio.gather(
             self._fetch_fear_greed(),
             self._scan_geopolitical(),
             self._analyze_news(),
+            self._scan_gaming_sector(),
             return_exceptions=True,
         )
 
         fg_index = fear_greed if isinstance(fear_greed, int) else None
         geo_data = geo_events if isinstance(geo_events, dict) else {"score": 0, "events": [], "flags": []}
         news_data = news_sentiment if isinstance(news_sentiment, dict) else {"score": 0, "events": [], "opportunities": []}
+        gaming_data = gaming if isinstance(gaming, dict) else {"score": 0, "catalysts": []}
 
         # Fear & Greed contribution: 0-25 = extreme fear (-3), 25-45 = fear (-1),
         # 55-75 = greed (+1), 75-100 = extreme greed (+2, but caution)
@@ -107,16 +126,19 @@ class SentimentTracker:
 
         geo_score = geo_data["score"]
         news_score = news_data["score"]
+        gaming_score = gaming_data["score"]
         overall = max(-10, min(10, (fg_score + geo_score + news_score) / 3 * 5))
 
         return SentimentReport(
             overall_score=round(overall, 2),
             geo_score=round(geo_score, 2),
             news_score=round(news_score, 2),
+            gaming_score=round(gaming_score, 2),
             fear_greed_index=fg_index,
             key_events=geo_data["events"] + news_data["events"],
             risk_flags=geo_data["flags"],
             opportunities=news_data["opportunities"],
+            gaming_catalysts=gaming_data["catalysts"],
         )
 
     async def _fetch_fear_greed(self) -> int | None:
@@ -192,6 +214,58 @@ class SentimentTracker:
             logger.warning(f"News analysis error: {e}")
 
         return {"score": max(-5, min(5, score)), "events": events, "opportunities": opportunities}
+
+
+    async def _scan_gaming_sector(self) -> dict[str, Any]:
+        """Scan for gaming/GTA 6 related catalysts that could move gaming tokens.
+
+        Tracks: GTA 6 launch news, P2E developments, metaverse announcements,
+        gaming partnership deals, and AAA game blockchain integrations.
+        """
+        catalysts: list[str] = []
+        score = 0.0
+
+        try:
+            session = await self._get_session()
+
+            # Check CoinGecko for gaming category performance
+            url = "https://api.coingecko.com/api/v3/coins/categories"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    categories = await resp.json()
+                    for cat in categories:
+                        name = cat.get("name", "").lower()
+                        if any(kw in name for kw in ["gaming", "play-to-earn", "metaverse"]):
+                            change_24h = cat.get("market_cap_change_24h", 0) or 0
+                            if change_24h > 5:
+                                score += 2
+                                catalysts.append(f"Gaming sector up {change_24h:.1f}% (24h)")
+                            elif change_24h > 0:
+                                score += 0.5
+                            elif change_24h < -5:
+                                score -= 1.5
+                                catalysts.append(f"Gaming sector down {change_24h:.1f}% (24h)")
+                            break
+
+            # Check trending for gaming tokens
+            url = "https://api.coingecko.com/api/v3/search/trending"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    gaming_ids = {"gala", "immutable-x", "ronin", "the-sandbox", "axie-infinity",
+                                  "decentraland", "enjincoin", "illuvium", "beam", "yield-guild-games",
+                                  "pixels", "superverse"}
+                    for coin in data.get("coins", []):
+                        item = coin.get("item", {})
+                        coin_id = item.get("id", "").lower()
+                        if coin_id in gaming_ids:
+                            score += 1.5
+                            catalysts.append(f"TRENDING: {item.get('name', coin_id)}")
+
+        except Exception as e:
+            logger.warning(f"Gaming sector scan error: {e}")
+
+        return {"score": max(-5, min(5, score)), "catalysts": catalysts}
 
 
 def score_headline(headline: str) -> float:

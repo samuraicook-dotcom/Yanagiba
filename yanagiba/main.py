@@ -66,7 +66,20 @@ class TradingBot:
         sentiment_report = await self.sentiment_tracker.get_report()
         self._print_sentiment(sentiment_report)
 
-        for symbol in self.config.assets:
+        # Build asset list: core + gaming tokens if enabled
+        all_assets = list(self.config.assets)
+        if self.config.enable_gaming_sector:
+            # Add gaming tokens when sector sentiment is positive
+            if sentiment_report.gaming_score > 0 or sentiment_report.gaming_catalysts:
+                all_assets.extend(
+                    t for t in self.config.gaming_tokens if t not in all_assets
+                )
+                logger.info(
+                    f"Gaming sector active (score={sentiment_report.gaming_score:+.1f}), "
+                    f"added {len(self.config.gaming_tokens)} gaming tokens"
+                )
+
+        for symbol in all_assets:
             result = await self._process_asset(symbol, sentiment_report)
             if result:
                 cycle_results.append(result)
@@ -164,11 +177,14 @@ class TradingBot:
         table.add_row("Overall Score", f"{report.overall_score:+.2f}")
         table.add_row("Geo Score", f"{report.geo_score:+.2f}")
         table.add_row("News Score", f"{report.news_score:+.2f}")
+        table.add_row("Gaming Score", f"{report.gaming_score:+.2f}")
         table.add_row("Fear & Greed", str(report.fear_greed_index or "N/A"))
         if report.risk_flags:
             table.add_row("Risk Flags", ", ".join(report.risk_flags[:3]))
         if report.opportunities:
             table.add_row("Opportunities", report.opportunities[0][:60])
+        if report.gaming_catalysts:
+            table.add_row("Gaming Catalysts", ", ".join(report.gaming_catalysts[:3]))
         console.print(table)
 
     def _print_analysis(self, symbol: str, analysis):

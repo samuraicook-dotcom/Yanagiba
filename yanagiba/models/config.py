@@ -22,6 +22,16 @@ class TradingConfig:
         ]
     )
 
+    # Gaming / narrative tokens (GTA 6 launch hype, gaming sector)
+    gaming_tokens: list[str] = field(
+        default_factory=lambda: [
+            "GALA/USDT", "IMX/USDT", "RONIN/USDT", "PIXEL/USDT",
+            "SUPER/USDT", "YGG/USDT", "SAND/USDT", "AXS/USDT", "MANA/USDT",
+            "ENJ/USDT", "ILV/USDT", "BEAM/USDT",
+        ]
+    )
+    enable_gaming_sector: bool = True
+
     # Timeframes
     timeframes: list[str] = field(
         default_factory=lambda: ["1m", "5m", "15m", "1h", "4h", "1d"]
