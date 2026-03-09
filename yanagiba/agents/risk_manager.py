@@ -42,9 +42,9 @@ class RiskManager:
                 reason=f"Portfolio exposure {portfolio.total_exposure_pct:.1%} exceeds limit",
             )
 
-        # Check risk/reward
-        if signal.risk_reward < 1.8:
-            reasons.append(f"R:R {signal.risk_reward} below 1.8 threshold")
+        # Check risk/reward (lowered for aggressive mode)
+        if signal.risk_reward < 1.3:
+            reasons.append(f"R:R {signal.risk_reward} below 1.3 threshold")
             return RiskAssessment(
                 approved=False,
                 adjusted_position_size=0,

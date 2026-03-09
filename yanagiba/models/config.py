@@ -42,20 +42,20 @@ class TradingConfig:
         default_factory=lambda: ["1m", "3m", "5m"]
     )
 
-    # Risk limits
-    max_portfolio_risk: float = 0.10  # 10%
-    max_risk_per_trade: float = 0.01  # 1%
-    max_leverage: float = 3.0
-    daily_loss_limit: float = 0.03  # 3%
-    scalp_stop_loss: float = 0.005  # 0.5% for scalping
-    scalp_take_profit_min: float = 0.01  # 1%
-    scalp_take_profit_max: float = 0.02  # 2%
-    scalp_position_size: float = 0.005  # 0.5% of portfolio
+    # Risk limits (aggressive mode for small account growth)
+    max_portfolio_risk: float = 0.30  # 30% max exposure
+    max_risk_per_trade: float = 0.03  # 3% risk per trade
+    max_leverage: float = 10.0  # up to 10x leverage
+    daily_loss_limit: float = 0.08  # 8% daily loss cap
+    scalp_stop_loss: float = 0.008  # 0.8% for scalping
+    scalp_take_profit_min: float = 0.02  # 2% TP1
+    scalp_take_profit_max: float = 0.04  # 4% TP2
+    scalp_position_size: float = 0.02  # 2% of portfolio per scalp
 
     # Indicator params
     rsi_period: int = 14
-    rsi_long_threshold: float = 55.0
-    rsi_short_threshold: float = 45.0
+    rsi_long_threshold: float = 52.0
+    rsi_short_threshold: float = 48.0
     ema_fast: int = 20
     ema_mid: int = 50
     ema_slow: int = 200
@@ -67,4 +67,4 @@ class TradingConfig:
 
     # Execution
     use_trailing_stop: bool = True
-    min_confidence: float = 6.0  # minimum confidence to execute
+    min_confidence: float = 5.0  # lower bar = more trades taken

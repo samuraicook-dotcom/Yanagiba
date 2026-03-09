@@ -64,16 +64,16 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return None
 
-        # EMA pullback: price pulled back to fast EMA in uptrend
+        # EMA pullback: price near fast EMA in uptrend (widened entry zone)
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            pullback = abs(close - latest["ema_fast"]) / close < 0.005
+            pullback = abs(close - latest["ema_fast"]) / close < 0.01  # wider zone
             above_mid = close > latest["ema_mid"]
-            rsi_ok = not np.isnan(latest["rsi"]) and 45 < latest["rsi"] < 70
+            rsi_ok = not np.isnan(latest["rsi"]) and 40 < latest["rsi"] < 75
 
             if pullback and above_mid and rsi_ok:
-                sl = close - 2 * atr_val
-                tp1 = close + 2 * atr_val
-                tp2 = close + 3 * atr_val
+                sl = close - 1.5 * atr_val  # tighter SL
+                tp1 = close + 3 * atr_val   # bigger TP
+                tp2 = close + 5 * atr_val
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
                 return TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
@@ -92,14 +92,14 @@ class StrategyEngine:
             return None
 
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            pullback = abs(close - latest["ema_fast"]) / close < 0.005
+            pullback = abs(close - latest["ema_fast"]) / close < 0.01
             below_mid = close < latest["ema_mid"]
-            rsi_ok = not np.isnan(latest["rsi"]) and 30 < latest["rsi"] < 55
+            rsi_ok = not np.isnan(latest["rsi"]) and 25 < latest["rsi"] < 60
 
             if pullback and below_mid and rsi_ok:
-                sl = close + 2 * atr_val
-                tp1 = close - 2 * atr_val
-                tp2 = close - 3 * atr_val
+                sl = close + 1.5 * atr_val
+                tp1 = close - 3 * atr_val
+                tp2 = close - 5 * atr_val
                 rr = (close - tp1) / (sl - close) if sl > close else 0
                 return TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
@@ -118,51 +118,51 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return signals
 
-        # Mean reversion: Bollinger band touch
+        # Mean reversion: Bollinger band proximity (widened trigger zone)
         if not np.isnan(latest["bb_lower"]) and not np.isnan(latest["bb_upper"]):
-            # Long at lower band
-            if close <= latest["bb_lower"] * 1.002:
-                sl = close - 1.5 * atr_val
+            # Long near lower band
+            if close <= latest["bb_lower"] * 1.005:
+                sl = close - 1.0 * atr_val  # tighter SL
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_upper"]
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=6.5,
+                    risk_reward=round(rr, 2), confidence_score=7.0,
                     strategy="bb_mean_reversion_long", timeframe=tf,
                 ))
-            # Short at upper band
-            elif close >= latest["bb_upper"] * 0.998:
-                sl = close + 1.5 * atr_val
+            # Short near upper band
+            elif close >= latest["bb_upper"] * 0.995:
+                sl = close + 1.0 * atr_val
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_lower"]
                 rr = (close - tp1) / (sl - close) if sl > close else 0
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=6.5,
+                    risk_reward=round(rr, 2), confidence_score=7.0,
                     strategy="bb_mean_reversion_short", timeframe=tf,
                 ))
 
-        # VWAP bounce
+        # VWAP bounce (widened zone, bigger targets)
         if not np.isnan(latest["vwap"]):
             vwap_dist = abs(close - latest["vwap"]) / close
-            if vwap_dist < 0.002:  # near VWAP
+            if vwap_dist < 0.005:  # wider VWAP zone
                 direction = Direction.LONG if latest.get("volume_delta", 0) > 0 else Direction.SHORT
                 if direction == Direction.LONG:
-                    sl = close - 1.5 * atr_val
-                    tp1 = close + 2 * atr_val
-                    tp2 = close + 3 * atr_val
+                    sl = close - 1.0 * atr_val
+                    tp1 = close + 3 * atr_val
+                    tp2 = close + 5 * atr_val
                 else:
-                    sl = close + 1.5 * atr_val
-                    tp1 = close - 2 * atr_val
-                    tp2 = close - 3 * atr_val
+                    sl = close + 1.0 * atr_val
+                    tp1 = close - 3 * atr_val
+                    tp2 = close - 5 * atr_val
                 rr_val = abs(tp1 - close) / abs(close - sl) if abs(close - sl) > 0 else 0
                 signals.append(TradeSignal(
                     asset=symbol, direction=direction, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr_val, 2), confidence_score=5.5,
+                    risk_reward=round(rr_val, 2), confidence_score=6.0,
                     strategy="vwap_bounce", timeframe=tf,
                 ))
 
@@ -184,9 +184,9 @@ class StrategyEngine:
 
         if close < recent_high * 0.998 and latest["high"] >= recent_high * 0.999:
             # Swept highs, potential short
-            sl = recent_high + atr_val
-            tp1 = close - 2 * atr_val
-            tp2 = close - 3 * atr_val
+            sl = recent_high + 0.5 * atr_val
+            tp1 = close - 3 * atr_val
+            tp2 = close - 5 * atr_val
             rr = (close - tp1) / (sl - close) if sl > close else 0
             signals.append(TradeSignal(
                 asset=symbol, direction=Direction.SHORT, entry=close,
@@ -197,14 +197,14 @@ class StrategyEngine:
 
         if close > recent_low * 1.002 and latest["low"] <= recent_low * 1.001:
             # Swept lows, potential long
-            sl = recent_low - atr_val
-            tp1 = close + 2 * atr_val
-            tp2 = close + 3 * atr_val
+            sl = recent_low - 0.5 * atr_val
+            tp1 = close + 3 * atr_val
+            tp2 = close + 5 * atr_val
             rr = (tp1 - close) / (close - sl) if close > sl else 0
             signals.append(TradeSignal(
                 asset=symbol, direction=Direction.LONG, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                risk_reward=round(rr, 2), confidence_score=6.0,
+                risk_reward=round(rr, 2), confidence_score=7.0,
                 strategy="liquidity_sweep_long", timeframe=tf,
             ))
 
