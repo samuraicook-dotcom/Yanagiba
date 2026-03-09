@@ -41,15 +41,15 @@ class TradingConfig:
         default_factory=lambda: ["1m", "3m", "5m"]
     )
 
-    # Risk limits (aggressive mode for small account growth)
-    max_portfolio_risk: float = 0.30  # 30% max exposure
-    max_risk_per_trade: float = 0.03  # 3% risk per trade
-    max_leverage: float = 10.0  # up to 10x leverage
-    daily_loss_limit: float = 0.08  # 8% daily loss cap
-    scalp_stop_loss: float = 0.008  # 0.8% for scalping
-    scalp_take_profit_min: float = 0.02  # 2% TP1
-    scalp_take_profit_max: float = 0.04  # 4% TP2
-    scalp_position_size: float = 0.02  # 2% of portfolio per scalp
+    # Risk limits (micro account ~$50, needs leverage to meet minimums)
+    max_portfolio_risk: float = 0.50  # 50% max exposure (need larger positions with $50)
+    max_risk_per_trade: float = 0.05  # 5% risk per trade ($2.50 max loss per trade)
+    max_leverage: float = 20.0  # up to 20x leverage (needed to meet $5 min notional)
+    daily_loss_limit: float = 0.10  # 10% daily loss cap ($5)
+    scalp_stop_loss: float = 0.005  # 0.5% for scalping
+    scalp_take_profit_min: float = 0.015  # 1.5% TP1
+    scalp_take_profit_max: float = 0.03  # 3% TP2
+    scalp_position_size: float = 0.10  # 10% of portfolio per scalp ($5)
 
     # Indicator params
     rsi_period: int = 14
@@ -66,4 +66,4 @@ class TradingConfig:
 
     # Execution
     use_trailing_stop: bool = True
-    min_confidence: float = 5.0  # lower bar = more trades taken
+    min_confidence: float = 4.0  # lower bar = more trades with small account

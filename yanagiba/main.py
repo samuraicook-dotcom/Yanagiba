@@ -54,7 +54,7 @@ class TradingBot:
         self.risk = RiskManager(self.config)
         self.execution = ExecutionEngine(self.config)
         self.telegram = telegram or TelegramNotifier("", "")
-        self.portfolio = PortfolioState(total_value=50.0, cash=50.0)
+        self.portfolio = PortfolioState(total_value=49.0, cash=49.0)
         self._running = False
 
     async def run_cycle(self) -> list[dict]:
@@ -288,11 +288,19 @@ def main():
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
     config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
 
+    if config.api_key:
+        console.print(f"[green]API key loaded: {config.api_key[:8]}...{config.api_key[-4:]}[/]")
+    else:
+        console.print("[yellow]WARNING: No API key found. Set BINANCE_API_KEY in .env or environment.[/]")
+
     # Parse CLI args
     if "--live" in sys.argv:
         config.sandbox = False
         if not config.api_key or not config.api_secret:
             console.print("[bold red]ERROR: --live requires BINANCE_API_KEY and BINANCE_API_SECRET env vars[/]")
+            console.print("[yellow]Create a .env file in the Yanagiba folder with:[/]")
+            console.print("  BINANCE_API_KEY=your-key-here")
+            console.print("  BINANCE_API_SECRET=your-secret-here")
             sys.exit(1)
         console.print("[bold red]WARNING: LIVE TRADING MODE[/]")
 
