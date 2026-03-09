@@ -52,7 +52,7 @@ class TradingBot:
         self.strategy = StrategyEngine(self.config)
         self.risk = RiskManager(self.config)
         self.execution = ExecutionEngine(self.config)
-        self.portfolio = PortfolioState(total_value=10000.0, cash=10000.0)
+        self.portfolio = PortfolioState(total_value=50.0, cash=50.0)
         self._running = False
 
     async def run_cycle(self) -> list[dict]:
@@ -258,9 +258,13 @@ class TradingBot:
 def main():
     import os
 
+    from dotenv import load_dotenv
+
+    load_dotenv()  # Load .env file from project root
+
     config = TradingConfig()
 
-    # API keys from environment (preferred) or CLI args
+    # API keys from .env file or environment variables
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
     config.api_secret = os.environ.get("BINANCE_API_SECRET", "")
 
