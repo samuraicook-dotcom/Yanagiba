@@ -10,6 +10,8 @@ class TradingConfig:
     # Exchange
     exchange: str = "binance"
     sandbox: bool = True  # paper trading by default
+    api_key: str = ""
+    api_secret: str = ""
 
     # Market type
     market_type: str = "future"  # "spot" or "future"

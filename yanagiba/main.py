@@ -44,7 +44,8 @@ class TradingBot:
     def __init__(self, config: TradingConfig | None = None):
         self.config = config or TradingConfig()
         self.data_provider = MarketDataProvider(
-            self.config.exchange, self.config.sandbox, self.config.market_type
+            self.config.exchange, self.config.sandbox, self.config.market_type,
+            self.config.api_key, self.config.api_secret,
         )
         self.sentiment_tracker = SentimentTracker()
         self.analyst = MarketAnalyst(self.config)
@@ -255,17 +256,31 @@ class TradingBot:
 
 
 def main():
+    import os
+
     config = TradingConfig()
 
-    # Parse basic CLI args
+    # API keys from environment (preferred) or CLI args
+    config.api_key = os.environ.get("BINANCE_API_KEY", "")
+    config.api_secret = os.environ.get("BINANCE_API_SECRET", "")
+
+    # Parse CLI args
     if "--live" in sys.argv:
         config.sandbox = False
+        if not config.api_key or not config.api_secret:
+            console.print("[bold red]ERROR: --live requires BINANCE_API_KEY and BINANCE_API_SECRET env vars[/]")
+            sys.exit(1)
         console.print("[bold red]WARNING: LIVE TRADING MODE[/]")
 
     if "--exchange" in sys.argv:
         idx = sys.argv.index("--exchange")
         if idx + 1 < len(sys.argv):
             config.exchange = sys.argv[idx + 1]
+
+    if "--market" in sys.argv:
+        idx = sys.argv.index("--market")
+        if idx + 1 < len(sys.argv):
+            config.market_type = sys.argv[idx + 1]  # "spot" or "future"
 
     interval = 60
     if "--interval" in sys.argv:

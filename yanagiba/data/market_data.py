@@ -14,12 +14,21 @@ class MarketDataProvider:
     """Fetches market data from exchanges via ccxt."""
 
     def __init__(
-        self, exchange_id: str = "binance", sandbox: bool = True, market_type: str = "future"
+        self,
+        exchange_id: str = "binance",
+        sandbox: bool = True,
+        market_type: str = "future",
+        api_key: str = "",
+        api_secret: str = "",
     ):
         exchange_class = getattr(ccxt, exchange_id)
-        options = {"enableRateLimit": True}
+        options: dict = {"enableRateLimit": True}
         if market_type == "future":
             options["defaultType"] = "future"
+        if api_key:
+            options["apiKey"] = api_key
+        if api_secret:
+            options["secret"] = api_secret
         self.exchange: ccxt.Exchange = exchange_class(options)
         if sandbox:
             self.exchange.set_sandbox_mode(True)
