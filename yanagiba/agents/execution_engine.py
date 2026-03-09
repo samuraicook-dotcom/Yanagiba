@@ -170,8 +170,10 @@ class ExecutionEngine:
                 elif plan.symbol not in exchange.markets:
                     logger.warning(f"Symbol {plan.symbol} not found in exchange markets")
 
-                # Set leverage on the exchange before placing order
-                leverage = int(min(self.config.max_leverage, 20))
+                # Set leverage — asset-specific caps (BTC=10x, ETH=15x)
+                overrides = self.config.asset_overrides.get(plan.symbol, {})
+                max_lev = overrides.get("max_leverage", self.config.max_leverage)
+                leverage = int(min(max_lev, 20))
                 try:
                     await exchange.set_leverage(leverage, futures_symbol)
                     logger.info(f"Leverage set to {leverage}x for {futures_symbol}")

@@ -21,6 +21,7 @@ class MarketAnalyst:
         ohlcv_by_timeframe: dict[str, pd.DataFrame],
         order_book: dict | None = None,
         funding_rate: float | None = None,
+        symbol: str = "",
     ) -> MarketAnalysis:
         scores: list[float] = []
         details: dict = {}
@@ -48,7 +49,7 @@ class MarketAnalyst:
             details["funding_rate"] = funding_rate
 
         sentiment = float(np.clip(np.mean(scores) if scores else 0, -10, 10))
-        regime = self._classify_regime(ohlcv_by_timeframe, sentiment)
+        regime = self._classify_regime(ohlcv_by_timeframe, sentiment, symbol)
         volatility = self._measure_volatility(ohlcv_by_timeframe)
 
         return MarketAnalysis(
@@ -108,8 +109,9 @@ class MarketAnalyst:
         weight = {"1m": 1.4, "3m": 1.3, "5m": 1.2, "15m": 1.0, "1h": 0.8, "4h": 0.6, "1d": 0.4}
         return score * weight.get(timeframe, 1.0)
 
-    def _classify_regime(
-        self, ohlcv_by_timeframe: dict[str, pd.DataFrame], sentiment: float
+    def classify_regime(
+        self, ohlcv_by_timeframe: dict[str, pd.DataFrame],
+        sentiment: float, symbol: str = "",
     ) -> MarketRegime:
         # Use the highest available timeframe for regime detection
         for tf in ["1d", "4h", "1h", "15m", "5m", "1m"]:
@@ -122,20 +124,39 @@ class MarketAnalyst:
         df = technical.compute_all(df, self.config)
         latest = df.iloc[-1]
 
-        # Volatility check
+        # TREND CHECK FIRST — trend overrides volatility
+        # (BTC at 3-4% daily ATR is NORMAL and can still trend)
+        is_trending = False
+        if not any(
+            np.isnan(latest[k])
+            for k in ["ema_fast", "ema_mid", "ema_slow"]
+        ):
+            if latest["ema_fast"] > latest["ema_mid"] > latest["ema_slow"]:
+                is_trending = True
+                trend_dir = MarketRegime.TRENDING_UP
+            elif latest["ema_fast"] < latest["ema_mid"] < latest["ema_slow"]:
+                is_trending = True
+                trend_dir = MarketRegime.TRENDING_DOWN
+
+        # Volatility check — asset-aware thresholds
+        # BTC daily ATR is 3-4% normally; only VOLATILE if >5%
+        # Altcoins are volatile above 3%
         if not np.isnan(latest["atr"]) and latest["close"] > 0:
             atr_pct = latest["atr"] / latest["close"]
-            if atr_pct > 0.03:
-                return MarketRegime.VOLATILE
+            vol_threshold = 0.05 if "BTC" in symbol else 0.03
+            if atr_pct > vol_threshold:
+                # If trending AND volatile, stay with trend
+                # (volatile + trending = strong move, ride it)
+                if not is_trending:
+                    return MarketRegime.VOLATILE
 
-        # Trend check via EMA alignment
-        if not any(np.isnan(latest[k]) for k in ["ema_fast", "ema_mid", "ema_slow"]):
-            if latest["ema_fast"] > latest["ema_mid"] > latest["ema_slow"]:
-                return MarketRegime.TRENDING_UP
-            if latest["ema_fast"] < latest["ema_mid"] < latest["ema_slow"]:
-                return MarketRegime.TRENDING_DOWN
+        if is_trending:
+            return trend_dir
 
         return MarketRegime.RANGING
+
+    # Keep old name as alias for compatibility
+    _classify_regime = classify_regime
 
     def _measure_volatility(self, ohlcv_by_timeframe: dict[str, pd.DataFrame]) -> float:
         for tf in ["1h", "4h", "15m", "5m", "1d"]:

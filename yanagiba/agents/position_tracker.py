@@ -144,16 +144,23 @@ class PositionTracker:
         return events
 
     def _estimate_pnl(self, pos: TrackedPosition, open_symbols: dict) -> float:
-        """Estimate PnL for a closed position based on SL/TP levels."""
-        # Without exact fill data, estimate conservatively:
-        # If we can't determine, assume small loss (conservative accounting)
-        # The actual PnL will be corrected on next portfolio sync
+        """Estimate PnL for a closed position based on SL/TP levels.
+
+        Deducts round-trip fees (entry taker + exit taker) from the estimate.
+        At 20x leverage, fees are ~1.6% of margin per round-trip.
+        """
         sl_distance = abs(pos.entry_price - pos.stop_loss) / pos.entry_price
 
         # Default: assume SL hit (conservative)
         leverage = 20 if pos.margin_usd < 10 else 10
         estimated_loss = pos.margin_usd * sl_distance * leverage
-        return -min(estimated_loss, pos.margin_usd * 0.8)
+
+        # Deduct round-trip fees: taker 0.04% * 2 sides * notional
+        notional = pos.entry_price * pos.quantity
+        fee_cost = notional * 0.0004 * 2  # 0.04% taker each way
+        estimated_loss += fee_cost
+
+        return -min(estimated_loss, pos.margin_usd * 0.95)
 
     @property
     def open_count(self) -> int:

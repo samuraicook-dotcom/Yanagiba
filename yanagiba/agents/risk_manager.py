@@ -135,23 +135,47 @@ class RiskManager:
             if sl_distance_pct > 0 else 0
         )
 
-        # Cap at max leverage
-        position_size_pct = min(
-            position_size_pct, self.config.max_leverage
+        # Asset-specific leverage cap (BTC=10x, ETH=15x, alts=20x)
+        asset_overrides = self.config.asset_overrides.get(
+            signal.asset, {}
         )
+        max_lev = asset_overrides.get(
+            "max_leverage", self.config.max_leverage
+        )
+        position_size_pct = min(position_size_pct, max_lev)
 
         # Cap margin usage
-        margin_pct = position_size_pct / self.config.max_leverage
+        margin_pct = position_size_pct / max_lev
         remaining_margin = (
             self.config.max_portfolio_risk - portfolio.total_exposure_pct
         )
         if margin_pct > remaining_margin:
-            position_size_pct = remaining_margin * self.config.max_leverage
+            position_size_pct = remaining_margin * max_lev
 
         if position_size_pct <= 0:
             return self._reject(
                 RiskLevel.HIGH, "No room for new positions"
             )
+
+        # Enforce minimum notional ($5 on Binance Futures)
+        # If vol scaling drops position below min, bump up to min
+        min_notional = 5.0
+        position_value = portfolio.total_value * position_size_pct
+        if position_value < min_notional and portfolio.total_value > 0:
+            min_size_pct = min_notional / portfolio.total_value
+            min_margin = min_size_pct / max_lev
+            if min_margin + portfolio.total_exposure_pct <= self.config.max_portfolio_risk:
+                position_size_pct = min_size_pct
+                logger.info(
+                    f"Bumped position to min notional "
+                    f"(${min_notional}): {position_size_pct:.4f}"
+                )
+            else:
+                return self._reject(
+                    RiskLevel.MEDIUM,
+                    f"Position ${position_value:.2f} below "
+                    f"${min_notional} min notional, no margin to bump",
+                )
 
         # Determine risk score
         risk_score = RiskLevel.LOW

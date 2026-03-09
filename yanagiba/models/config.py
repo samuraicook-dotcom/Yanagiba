@@ -89,11 +89,13 @@ class TradingConfig:
                 "scalp_stop_loss": 0.003,  # 0.3% (BTC is tighter)
                 "scalp_take_profit_min": 0.009,  # 0.9% TP1
                 "scalp_take_profit_max": 0.018,  # 1.8% TP2
+                "max_leverage": 10.0,  # BTC: lower leverage, more predictable
             },
             "ETH/USDT": {
                 "scalp_stop_loss": 0.004,  # 0.4%
                 "scalp_take_profit_min": 0.012,
                 "scalp_take_profit_max": 0.024,
+                "max_leverage": 15.0,  # ETH: moderate leverage
             },
         }
     )

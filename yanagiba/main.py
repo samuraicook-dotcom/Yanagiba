@@ -134,7 +134,9 @@ class TradingBot:
             order_book = await self.data_provider.fetch_order_book(symbol)
             funding_rate = await self.data_provider.fetch_funding_rate(symbol)
 
-            analysis = self.analyst.analyze(ohlcv_data, order_book, funding_rate)
+            analysis = self.analyst.analyze(
+                ohlcv_data, order_book, funding_rate, symbol=symbol,
+            )
 
             # Blend geopolitical sentiment into analysis (meaningful weight)
             geo_adjustment = sentiment_report.overall_score * 0.7
@@ -201,7 +203,13 @@ class TradingBot:
                 # Track margin as % of portfolio: notional / leverage / portfolio_value
                 if order.status == "placed":
                     notional = plan.position_size * order.entry
-                    margin_usd = notional / self.config.max_leverage
+                    asset_overrides = self.config.asset_overrides.get(
+                        sig.asset, {}
+                    )
+                    max_lev = asset_overrides.get(
+                        "max_leverage", self.config.max_leverage
+                    )
+                    margin_usd = notional / max_lev
                     margin_pct = margin_usd / self.portfolio.total_value
                     self.portfolio.total_exposure_pct += margin_pct
                     self.portfolio.cash -= margin_usd
