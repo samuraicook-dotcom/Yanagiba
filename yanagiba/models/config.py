@@ -16,22 +16,18 @@ class TradingConfig:
     # Market type
     market_type: str = "future"  # "spot" or "future"
 
-    # Trade universe (supports any pairs available on the exchange)
+    # Trade universe — only pairs whitelisted on your Binance API key
     assets: list[str] = field(
         default_factory=lambda: [
-            "BTC/USDT", "ETH/USDT", "SOL/USDT", "ARB/USDT", "OP/USDT",
-            "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "POL/USDT", "APT/USDT",
+            "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT",
         ]
     )
 
-    # Gaming / narrative tokens (GTA 6 launch hype, gaming sector)
+    # Gaming / narrative tokens (disabled — not whitelisted on API key)
     gaming_tokens: list[str] = field(
-        default_factory=lambda: [
-            "GALA/USDT", "IMX/USDT", "AXS/USDT", "SAND/USDT",
-            "MANA/USDT", "ENJ/USDT", "SUPER/USDT", "YGG/USDT",
-        ]
+        default_factory=lambda: []
     )
-    enable_gaming_sector: bool = True
+    enable_gaming_sector: bool = False
 
     # Timeframes
     timeframes: list[str] = field(
