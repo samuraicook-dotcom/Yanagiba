@@ -26,6 +26,7 @@ from yanagiba.agents.market_analyst import MarketAnalyst
 from yanagiba.agents.position_tracker import PositionTracker
 from yanagiba.agents.risk_manager import RiskManager
 from yanagiba.agents.strategy_engine import StrategyEngine
+from yanagiba.data.cme_gap import CMEGapTracker
 from yanagiba.data.market_data import MarketDataProvider
 from yanagiba.data.sentiment import SentimentTracker
 from yanagiba.data.telegram import TelegramNotifier
@@ -57,6 +58,7 @@ class TradingBot:
         self.execution = ExecutionEngine(self.config)
         self.position_tracker = PositionTracker()
         self.journal = TradeJournal()
+        self.cme_gap = CMEGapTracker()
         self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = PortfolioState(total_value=49.0, cash=49.0)
         self._running = False
@@ -101,6 +103,32 @@ class TradingBot:
 
         await self.telegram.notify_cycle_start(timestamp, all_assets)
 
+        # CME gap tracking — record BTC price at Friday close / Sunday open
+        if self.cme_gap.is_cme_close_window():
+            try:
+                btc_data = await self.data_provider.fetch_multi_timeframe(
+                    "BTC/USDT", ["1h"],
+                )
+                if btc_data and "1h" in btc_data:
+                    price = btc_data["1h"]["close"].iloc[-1]
+                    self.cme_gap._friday_close = price
+                    logger.info(f"CME Friday close recorded: ${price:,.0f}")
+            except Exception as e:
+                logger.debug(f"CME gap record failed: {e}")
+        elif self.cme_gap.is_cme_open_window():
+            friday = getattr(self.cme_gap, "_friday_close", None)
+            if friday:
+                try:
+                    btc_data = await self.data_provider.fetch_multi_timeframe(
+                        "BTC/USDT", ["1h"],
+                    )
+                    if btc_data and "1h" in btc_data:
+                        sunday = btc_data["1h"]["close"].iloc[-1]
+                        self.cme_gap.check_and_record_gap(friday, sunday)
+                        self.cme_gap._friday_close = None
+                except Exception as e:
+                    logger.debug(f"CME gap check failed: {e}")
+
         # Reset correlation guard for new cycle
         self.risk.clear_cycle_trades()
 
@@ -137,6 +165,18 @@ class TradingBot:
             analysis = self.analyst.analyze(
                 ohlcv_data, order_book, funding_rate, symbol=symbol,
             )
+
+            # CME gap bias for BTC — gaps fill 65-98% of the time
+            if "BTC" in symbol:
+                btc_price = ohlcv_data.get("1h", ohlcv_data.get(
+                    "5m", next(iter(ohlcv_data.values()))
+                ))["close"].iloc[-1]
+                cme_bias = self.cme_gap.get_bias(btc_price)
+                if abs(cme_bias) > 0:
+                    analysis.sentiment_score = max(
+                        -10, min(10, analysis.sentiment_score + cme_bias)
+                    )
+                    analysis.details["cme_gap_bias"] = round(cme_bias, 2)
 
             # Blend geopolitical sentiment into analysis (meaningful weight)
             geo_adjustment = sentiment_report.overall_score * 0.7

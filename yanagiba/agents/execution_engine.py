@@ -180,16 +180,23 @@ class ExecutionEngine:
                 except Exception as e:
                     logger.warning(f"Could not set leverage (may already be set): {e}")
 
-                # Place market entry order
+                # Place entry order — limit saves 60% on fees
+                order_type = "limit" if self.config.use_limit_entry else "market"
                 logger.info(
-                    f"Placing {plan.side.upper()} {plan.position_size} {plan.symbol} "
+                    f"Placing {order_type.upper()} {plan.side.upper()} "
+                    f"{plan.position_size} {plan.symbol} "
                     f"(notional ${notional:.2f}, leverage {leverage}x)"
                 )
+                order_params: dict = {}
+                if order_type == "limit":
+                    # Limit order at current price for maker fee
+                    order_params["price"] = plan.entry
                 result = await exchange.create_order(
                     symbol=futures_symbol,
-                    type="market",
+                    type=order_type,
                     side=plan.side,
                     amount=plan.position_size,
+                    **order_params,
                 )
                 order.status = "placed"
                 fill = result.get("average", result.get("price", plan.entry))

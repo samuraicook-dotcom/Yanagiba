@@ -67,11 +67,14 @@ class TradingConfig:
     macd_slow: int = 26
     macd_signal: int = 9
 
-    # Fees (Binance Futures — these eat profits on small accounts)
-    taker_fee: float = 0.0004  # 0.04% taker (market orders)
+    # Fees (Binance Futures USDT-M — these eat profits on small accounts)
+    # Actual Binance non-VIP rates (verified March 2026)
+    taker_fee: float = 0.0005  # 0.05% taker (market orders)
     maker_fee: float = 0.0002  # 0.02% maker (limit orders)
-    # Round-trip cost = entry (taker) + exit (taker/maker)
-    # At 20x leverage: 0.04% * 20x * 2 = 1.6% of margin per round-trip!
+    use_limit_entry: bool = True  # use limit orders to save 60% on fees
+    # Round-trip cost at taker: 0.05% * 2 = 0.10% of notional
+    # At 20x leverage: 0.10% * 20 = 2% of margin per round-trip!
+    # With limit entry: maker(0.02%) + taker(0.05%) = 0.07% = 1.4% of margin
 
     # Trading session filter (UTC hours — trade when volume is highest)
     # Best BTC hours: US+EU overlap (13:00-17:00 UTC), Asia open (00:00-03:00)
@@ -79,6 +82,8 @@ class TradingConfig:
         default_factory=lambda: [(0, 4), (8, 11), (13, 21)]
     )
     use_session_filter: bool = True  # skip low-volume hours
+    weekend_position_scale: float = 0.5  # halve position size on weekends
+    use_weekend_filter: bool = True  # reduce risk on Sat/Sun (thin liquidity)
 
     # Asset-specific overrides (BTC moves differently than altcoins)
     # BTC: lower volatility per candle, needs wider SL but is more predictable
@@ -108,6 +113,17 @@ class TradingConfig:
             ["ARB/USDT", "OP/USDT"],  # L2s move together
             ["DOGE/USDT", "POL/USDT"],  # meme/low-cap
         ]
+    )
+
+    # Risk weights for high-beta assets (SOL crashed -40% when BTC fell 15%)
+    # Used in correlation guard to count high-beta assets as >1 position
+    asset_risk_weights: dict = field(
+        default_factory=lambda: {
+            "SOL/USDT": 1.5,  # SOL = 1.5x BTC beta
+            "DOGE/USDT": 1.5,  # memecoins are high-beta
+            "ARB/USDT": 1.3,
+            "OP/USDT": 1.3,
+        }
     )
 
     # Funding rate filter — avoid entering against funding

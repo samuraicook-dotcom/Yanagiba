@@ -155,9 +155,9 @@ class PositionTracker:
         leverage = 20 if pos.margin_usd < 10 else 10
         estimated_loss = pos.margin_usd * sl_distance * leverage
 
-        # Deduct round-trip fees: taker 0.04% * 2 sides * notional
+        # Deduct round-trip fees: maker entry (0.02%) + taker exit (0.05%)
         notional = pos.entry_price * pos.quantity
-        fee_cost = notional * 0.0004 * 2  # 0.04% taker each way
+        fee_cost = notional * (0.0002 + 0.0005)  # maker + taker
         estimated_loss += fee_cost
 
         return -min(estimated_loss, pos.margin_usd * 0.95)

@@ -64,6 +64,12 @@ class RiskManager:
                     "Outside active trading hours (low volume)",
                 )
 
+        # Weekend filter — thin liquidity, wider spreads, gap risk
+        is_weekend = self._is_weekend()
+        if is_weekend and self.config.use_weekend_filter:
+            # Don't fully block, just flag for position scaling later
+            pass
+
         # Funding rate filter — don't fight the funding
         if funding_rate is not None:
             if (
@@ -97,7 +103,13 @@ class RiskManager:
         entry = signal.entry
         sl = signal.stop_loss
         tp1 = signal.take_profit_1
-        fee_cost = self.config.taker_fee * 2  # entry + exit
+        # Entry fee depends on order type: limit (maker) saves 60%
+        entry_fee = (
+            self.config.maker_fee if self.config.use_limit_entry
+            else self.config.taker_fee
+        )
+        exit_fee = self.config.taker_fee  # SL/TP exits are taker
+        fee_cost = entry_fee + exit_fee
         sl_distance = abs(entry - sl)
         tp_distance = abs(tp1 - entry)
 
@@ -177,6 +189,14 @@ class RiskManager:
                     f"${min_notional} min notional, no margin to bump",
                 )
 
+        # Weekend scaling — reduce position size on Sat/Sun
+        if is_weekend and self.config.use_weekend_filter:
+            position_size_pct *= self.config.weekend_position_scale
+            logger.info(
+                f"Weekend: scaled position to "
+                f"{self.config.weekend_position_scale:.0%}"
+            )
+
         # Determine risk score
         risk_score = RiskLevel.LOW
         if fee_adjusted_rr < 2.5:
@@ -221,17 +241,30 @@ class RiskManager:
                 return True
         return False
 
+    @staticmethod
+    def _is_weekend() -> bool:
+        """Check if it's Saturday or Sunday UTC."""
+        return datetime.now(timezone.utc).weekday() >= 5
+
     def _check_correlation(self, signal: TradeSignal) -> bool:
-        """Ensure we don't stack too many same-direction correlated bets."""
+        """Ensure we don't stack too many same-direction correlated bets.
+
+        Uses risk weights: SOL (1.5x beta) counts as 1.5 positions,
+        so BTC long + SOL long = 2.5 weighted positions (vs limit of 2).
+        """
+        weights = self.config.asset_risk_weights
         for group in self.config.correlation_groups:
             if signal.asset not in group:
                 continue
-            same_dir_count = sum(
-                1 for t in self.active_trades
+            weighted_count = sum(
+                weights.get(t["asset"], 1.0)
+                for t in self.active_trades
                 if t["asset"] in group
                 and t["direction"] == signal.direction
             )
-            if same_dir_count >= self.config.max_correlated_trades:
+            # Add this signal's weight to check if it would exceed
+            new_weight = weights.get(signal.asset, 1.0)
+            if weighted_count + new_weight > self.config.max_correlated_trades:
                 return False
         return True
 
