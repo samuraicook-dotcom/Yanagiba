@@ -226,7 +226,7 @@ class TradingBot:
         table.add_row("Trades Executed", str(exec_summary["executed_orders"]))
         console.print(table)
 
-    async def run_loop(self, interval_seconds: int = 60):
+    async def run_loop(self, interval_seconds: int = 180):
         """Run continuous trading loop."""
         self._running = True
         console.print(f"[bold green]Yanagiba Trading Bot started[/]")
@@ -286,7 +286,7 @@ def main():
         if idx + 1 < len(sys.argv):
             config.market_type = sys.argv[idx + 1]  # "spot" or "future"
 
-    interval = 60
+    interval = 180
     if "--interval" in sys.argv:
         idx = sys.argv.index("--interval")
         if idx + 1 < len(sys.argv):
