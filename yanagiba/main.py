@@ -277,30 +277,47 @@ class TradingBot:
 
 def main():
     import os
+    from pathlib import Path
 
     from dotenv import load_dotenv
 
-    load_dotenv()  # Load .env file from project root
+    # Load .env from multiple locations (project dir, home dir, script dir)
+    project_root = Path(__file__).resolve().parent.parent
+    load_dotenv(project_root / ".env")
+    load_dotenv(Path.home() / "Yanagiba" / ".env")
+    load_dotenv()  # Also check CWD
 
     config = TradingConfig()
 
-    # API keys from .env file or environment variables
+    # API keys: check CLI args first, then env vars
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
     config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
+
+    # Allow passing keys via CLI: --api-key KEY --api-secret SECRET
+    if "--api-key" in sys.argv:
+        idx = sys.argv.index("--api-key")
+        if idx + 1 < len(sys.argv):
+            config.api_key = sys.argv[idx + 1]
+    if "--api-secret" in sys.argv:
+        idx = sys.argv.index("--api-secret")
+        if idx + 1 < len(sys.argv):
+            config.api_secret = sys.argv[idx + 1]
 
     if config.api_key:
         console.print(f"[green]API key loaded: {config.api_key[:8]}...{config.api_key[-4:]}[/]")
     else:
-        console.print("[yellow]WARNING: No API key found. Set BINANCE_API_KEY in .env or environment.[/]")
+        console.print("[yellow]WARNING: No API key found.[/]")
 
     # Parse CLI args
     if "--live" in sys.argv:
         config.sandbox = False
         if not config.api_key or not config.api_secret:
-            console.print("[bold red]ERROR: --live requires BINANCE_API_KEY and BINANCE_API_SECRET env vars[/]")
-            console.print("[yellow]Create a .env file in the Yanagiba folder with:[/]")
-            console.print("  BINANCE_API_KEY=your-key-here")
-            console.print("  BINANCE_API_SECRET=your-secret-here")
+            console.print("[bold red]ERROR: --live requires API keys. Use one of:[/]")
+            console.print("  1. Create ~/Yanagiba/.env with:")
+            console.print("     BINANCE_API_KEY=your-key")
+            console.print("     BINANCE_API_SECRET=your-secret")
+            console.print("  2. Pass via CLI:")
+            console.print("     --api-key YOUR_KEY --api-secret YOUR_SECRET")
             sys.exit(1)
         console.print("[bold red]WARNING: LIVE TRADING MODE[/]")
 
