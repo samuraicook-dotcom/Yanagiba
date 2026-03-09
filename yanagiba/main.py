@@ -101,6 +101,9 @@ class TradingBot:
 
         await self.telegram.notify_cycle_start(timestamp, all_assets)
 
+        # Reset correlation guard for new cycle
+        self.risk.clear_cycle_trades()
+
         for symbol in all_assets:
             result = await self._process_asset(symbol, sentiment_report, timestamp)
             if result:
@@ -153,12 +156,14 @@ class TradingBot:
 
             self._print_signals(signals)
 
-            # 3. RISK MANAGER: Evaluate each signal (pass volatility for position scaling)
+            # 3. RISK MANAGER: Evaluate each signal
             logger.info(f"AGENT 3: Risk Manager evaluating {len(signals)} signals...")
             approved_trades = []
             for sig in signals:
                 risk_assessment = self.risk.evaluate(
-                    sig, self.portfolio, volatility_level=analysis.volatility_level,
+                    sig, self.portfolio,
+                    volatility_level=analysis.volatility_level,
+                    funding_rate=funding_rate,
                 )
                 if risk_assessment.approved:
                     approved_trades.append((sig, risk_assessment))

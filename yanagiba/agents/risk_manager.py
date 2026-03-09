@@ -1,14 +1,30 @@
-"""Agent 3: Risk Manager — Evaluates and gates every trade."""
+"""Agent 3: Risk Manager — Evaluates and gates every trade.
+
+Key protections:
+- Daily loss limit (survive bad days)
+- Portfolio exposure cap (don't over-leverage)
+- Fee-adjusted R:R (account for Binance costs)
+- Correlation guard (don't stack same-direction bets)
+- Funding rate filter (don't fight the funding)
+- Volatility-scaled position sizing
+- Session hour filter (trade when volume is high)
+"""
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import (
+    Direction,
     PortfolioState,
     RiskAssessment,
     RiskLevel,
     TradeSignal,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RiskManager:
@@ -16,102 +32,191 @@ class RiskManager:
 
     def __init__(self, config: TradingConfig | None = None):
         self.config = config or TradingConfig()
+        # Track active trade directions for correlation guard
+        self.active_trades: list[dict] = []
 
     def evaluate(
         self, signal: TradeSignal, portfolio: PortfolioState,
         volatility_level: float = 0.5,
+        funding_rate: float | None = None,
     ) -> RiskAssessment:
         reasons: list[str] = []
 
         # Check daily loss limit
         if portfolio.daily_loss_pct >= self.config.daily_loss_limit:
-            return RiskAssessment(
-                approved=False,
-                adjusted_position_size=0,
-                risk_score=RiskLevel.HIGH,
-                max_loss_amount=0,
-                reason="Daily loss limit reached",
+            return self._reject(
+                RiskLevel.HIGH, "Daily loss limit reached"
             )
 
         # Check portfolio exposure
         if portfolio.total_exposure_pct >= self.config.max_portfolio_risk:
-            return RiskAssessment(
-                approved=False,
-                adjusted_position_size=0,
-                risk_score=RiskLevel.HIGH,
-                max_loss_amount=0,
-                reason=f"Portfolio exposure {portfolio.total_exposure_pct:.1%} exceeds limit",
+            return self._reject(
+                RiskLevel.HIGH,
+                f"Portfolio exposure {portfolio.total_exposure_pct:.1%} "
+                f"exceeds limit",
             )
 
-        # Check risk/reward
+        # Session hour filter — don't trade during dead hours
+        if self.config.use_session_filter:
+            if not self._is_active_session():
+                return self._reject(
+                    RiskLevel.LOW,
+                    "Outside active trading hours (low volume)",
+                )
+
+        # Funding rate filter — don't fight the funding
+        if funding_rate is not None:
+            if (
+                signal.direction == Direction.LONG
+                and funding_rate > self.config.max_funding_rate_long
+            ):
+                return self._reject(
+                    RiskLevel.MEDIUM,
+                    f"Funding {funding_rate:.4%} too high for longs "
+                    f"(crowded longs = reversal risk)",
+                )
+            if (
+                signal.direction == Direction.SHORT
+                and funding_rate < self.config.max_funding_rate_short
+            ):
+                return self._reject(
+                    RiskLevel.MEDIUM,
+                    f"Funding {funding_rate:.4%} too negative for shorts",
+                )
+
+        # Correlation guard — don't stack same-direction bets
+        if not self._check_correlation(signal):
+            return self._reject(
+                RiskLevel.MEDIUM,
+                f"Too many {signal.direction.value} trades on "
+                f"correlated assets",
+            )
+
+        # Fee-adjusted R:R check
+        # Round-trip fees at leverage eat into profits
+        entry = signal.entry
+        sl = signal.stop_loss
+        tp1 = signal.take_profit_1
+        fee_cost = self.config.taker_fee * 2  # entry + exit
+        sl_distance = abs(entry - sl)
+        tp_distance = abs(tp1 - entry)
+
+        # Actual R:R after fees (fees reduce TP and increase SL)
+        effective_tp = tp_distance - (entry * fee_cost)
+        effective_sl = sl_distance + (entry * fee_cost)
+        fee_adjusted_rr = (
+            effective_tp / effective_sl if effective_sl > 0 else 0
+        )
+
         min_rr = self.config.min_risk_reward
-        if signal.risk_reward < min_rr:
-            reasons.append(f"R:R {signal.risk_reward} below {min_rr} threshold")
-            return RiskAssessment(
-                approved=False,
-                adjusted_position_size=0,
-                risk_score=RiskLevel.MEDIUM,
-                max_loss_amount=0,
-                reason="; ".join(reasons),
+        if fee_adjusted_rr < min_rr:
+            return self._reject(
+                RiskLevel.MEDIUM,
+                f"Fee-adjusted R:R {fee_adjusted_rr:.2f} below "
+                f"{min_rr} (raw R:R {signal.risk_reward})",
             )
 
         # Check confidence
         if signal.confidence_score < self.config.min_confidence:
             reasons.append(
-                f"Confidence {signal.confidence_score} below {self.config.min_confidence}"
+                f"Confidence {signal.confidence_score} below "
+                f"{self.config.min_confidence}"
             )
-            return RiskAssessment(
-                approved=False,
-                adjusted_position_size=0,
-                risk_score=RiskLevel.MEDIUM,
-                max_loss_amount=0,
-                reason="; ".join(reasons),
-            )
+            return self._reject(RiskLevel.MEDIUM, "; ".join(reasons))
 
-        # Calculate position size (as multiple of portfolio — >1.0 means leveraged)
-        # Scale risk down in high volatility — protect capital when markets are wild
-        vol_scale = max(0.3, 1.0 - volatility_level)  # high vol = smaller position
+        # Position sizing — volatility-scaled
+        vol_scale = max(0.3, 1.0 - volatility_level)
         risk_per_trade = self.config.max_risk_per_trade * vol_scale
         max_loss = portfolio.total_value * risk_per_trade
 
-        entry = signal.entry
-        sl = signal.stop_loss
         sl_distance_pct = abs(entry - sl) / entry if entry > 0 else 1
-        position_size_pct = risk_per_trade / sl_distance_pct if sl_distance_pct > 0 else 0
+        position_size_pct = (
+            risk_per_trade / sl_distance_pct
+            if sl_distance_pct > 0 else 0
+        )
 
         # Cap at max leverage
-        position_size_pct = min(position_size_pct, self.config.max_leverage)
+        position_size_pct = min(
+            position_size_pct, self.config.max_leverage
+        )
 
-        # Cap margin usage: margin = notional / max_leverage = position_size_pct / max_leverage
-        # e.g. 5x position / 20x max leverage = 25% margin used
+        # Cap margin usage
         margin_pct = position_size_pct / self.config.max_leverage
-        remaining_margin = self.config.max_portfolio_risk - portfolio.total_exposure_pct
+        remaining_margin = (
+            self.config.max_portfolio_risk - portfolio.total_exposure_pct
+        )
         if margin_pct > remaining_margin:
-            # Scale down position to fit remaining margin
             position_size_pct = remaining_margin * self.config.max_leverage
 
         if position_size_pct <= 0:
-            return RiskAssessment(
-                approved=False,
-                adjusted_position_size=0,
-                risk_score=RiskLevel.HIGH,
-                max_loss_amount=0,
-                reason="No room for new positions",
+            return self._reject(
+                RiskLevel.HIGH, "No room for new positions"
             )
 
         # Determine risk score
         risk_score = RiskLevel.LOW
-        if signal.risk_reward < 2.5:
+        if fee_adjusted_rr < 2.5:
             risk_score = RiskLevel.MEDIUM
         if signal.confidence_score < 7:
             risk_score = RiskLevel.MEDIUM
         if sl_distance_pct > 0.03:
             risk_score = RiskLevel.HIGH
 
+        # Track this trade for correlation guard
+        self.active_trades.append({
+            "asset": signal.asset,
+            "direction": signal.direction,
+        })
+
         return RiskAssessment(
             approved=True,
             adjusted_position_size=round(position_size_pct, 4),
             risk_score=risk_score,
             max_loss_amount=round(max_loss, 2),
-            reason="Trade approved",
+            reason=(
+                f"Trade approved (fee-adj R:R={fee_adjusted_rr:.2f}, "
+                f"vol_scale={vol_scale:.1f})"
+            ),
+        )
+
+    def clear_cycle_trades(self):
+        """Reset active trades at start of each cycle."""
+        self.active_trades.clear()
+
+    def remove_closed_trade(self, asset: str):
+        """Remove a trade from active tracking when it closes."""
+        self.active_trades = [
+            t for t in self.active_trades if t["asset"] != asset
+        ]
+
+    def _is_active_session(self) -> bool:
+        """Check if current UTC hour is within active trading hours."""
+        hour = datetime.now(timezone.utc).hour
+        for start, end in self.config.active_hours_utc:
+            if start <= hour < end:
+                return True
+        return False
+
+    def _check_correlation(self, signal: TradeSignal) -> bool:
+        """Ensure we don't stack too many same-direction correlated bets."""
+        for group in self.config.correlation_groups:
+            if signal.asset not in group:
+                continue
+            same_dir_count = sum(
+                1 for t in self.active_trades
+                if t["asset"] in group
+                and t["direction"] == signal.direction
+            )
+            if same_dir_count >= self.config.max_correlated_trades:
+                return False
+        return True
+
+    @staticmethod
+    def _reject(level: RiskLevel, reason: str) -> RiskAssessment:
+        return RiskAssessment(
+            approved=False,
+            adjusted_position_size=0,
+            risk_score=level,
+            max_loss_amount=0,
+            reason=reason,
         )

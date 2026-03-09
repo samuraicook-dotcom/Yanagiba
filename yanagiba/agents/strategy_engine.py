@@ -213,6 +213,18 @@ class StrategyEngine:
 
         return signals
 
+    def _get_scalp_params(self, symbol: str) -> tuple[float, float, float]:
+        """Get asset-specific scalp SL/TP or fall back to defaults."""
+        overrides = self.config.asset_overrides.get(symbol, {})
+        sl = overrides.get("scalp_stop_loss", self.config.scalp_stop_loss)
+        tp_min = overrides.get(
+            "scalp_take_profit_min", self.config.scalp_take_profit_min
+        )
+        tp_max = overrides.get(
+            "scalp_take_profit_max", self.config.scalp_take_profit_max
+        )
+        return sl, tp_min, tp_max
+
     def _scalp_setup(
         self, symbol: str, df: pd.DataFrame, latest: pd.Series, tf: str,
         order_book: dict | None = None,
@@ -227,6 +239,9 @@ class StrategyEngine:
 
         ob_imbalance = order_book.get("imbalance", 0) if order_book else 0
 
+        # Get asset-specific SL/TP (BTC needs tighter params than altcoins)
+        scalp_sl, scalp_tp_min, scalp_tp_max = self._get_scalp_params(symbol)
+
         # LONG scalp: RSI in sweet spot (not overbought), strong order book
         if (
             close > vwap_val
@@ -235,17 +250,20 @@ class StrategyEngine:
             and vd > 0
             and ob_imbalance > 0.1
         ):
-            sl = close * (1 - self.config.scalp_stop_loss)
-            tp1 = close * (1 + self.config.scalp_take_profit_min)
-            tp2 = close * (1 + self.config.scalp_take_profit_max)
-            rr = self.config.scalp_take_profit_min / self.config.scalp_stop_loss
-            # Confidence: order book strength + RSI in sweet zone (55-65 best)
-            rsi_quality = max(0, 1.0 - abs(rsi_val - 60) / 15)  # peaks at RSI 60
-            confidence = min(5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10)
+            sl = close * (1 - scalp_sl)
+            tp1 = close * (1 + scalp_tp_min)
+            tp2 = close * (1 + scalp_tp_max)
+            rr = scalp_tp_min / scalp_sl
+            # Confidence: order book + RSI sweet zone (55-65 best)
+            rsi_quality = max(0, 1.0 - abs(rsi_val - 60) / 15)
+            confidence = min(
+                5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10
+            )
             return TradeSignal(
                 asset=symbol, direction=Direction.LONG, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                risk_reward=round(rr, 2), confidence_score=round(confidence, 1),
+                risk_reward=round(rr, 2),
+                confidence_score=round(confidence, 1),
                 strategy="scalp_momentum_long", timeframe=tf,
             )
 
@@ -257,17 +275,20 @@ class StrategyEngine:
             and vd < 0
             and ob_imbalance < -0.1
         ):
-            sl = close * (1 + self.config.scalp_stop_loss)
-            tp1 = close * (1 - self.config.scalp_take_profit_min)
-            tp2 = close * (1 - self.config.scalp_take_profit_max)
-            rr = self.config.scalp_take_profit_min / self.config.scalp_stop_loss
-            # Confidence: order book weakness + RSI in sweet zone (35-45 best)
-            rsi_quality = max(0, 1.0 - abs(rsi_val - 40) / 15)  # peaks at RSI 40
-            confidence = min(5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10)
+            sl = close * (1 + scalp_sl)
+            tp1 = close * (1 - scalp_tp_min)
+            tp2 = close * (1 - scalp_tp_max)
+            rr = scalp_tp_min / scalp_sl
+            # Confidence: order book weakness + RSI sweet zone (35-45)
+            rsi_quality = max(0, 1.0 - abs(rsi_val - 40) / 15)
+            confidence = min(
+                5 + abs(ob_imbalance) * 3 + rsi_quality * 2, 10
+            )
             return TradeSignal(
                 asset=symbol, direction=Direction.SHORT, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                risk_reward=round(rr, 2), confidence_score=round(confidence, 1),
+                risk_reward=round(rr, 2),
+                confidence_score=round(confidence, 1),
                 strategy="scalp_momentum_short", timeframe=tf,
             )
 

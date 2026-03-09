@@ -67,8 +67,53 @@ class TradingConfig:
     macd_slow: int = 26
     macd_signal: int = 9
 
+    # Fees (Binance Futures — these eat profits on small accounts)
+    taker_fee: float = 0.0004  # 0.04% taker (market orders)
+    maker_fee: float = 0.0002  # 0.02% maker (limit orders)
+    # Round-trip cost = entry (taker) + exit (taker/maker)
+    # At 20x leverage: 0.04% * 20x * 2 = 1.6% of margin per round-trip!
+
+    # Trading session filter (UTC hours — trade when volume is highest)
+    # Best BTC hours: US+EU overlap (13:00-17:00 UTC), Asia open (00:00-03:00)
+    active_hours_utc: list[tuple[int, int]] = field(
+        default_factory=lambda: [(0, 4), (8, 11), (13, 21)]
+    )
+    use_session_filter: bool = True  # skip low-volume hours
+
+    # Asset-specific overrides (BTC moves differently than altcoins)
+    # BTC: lower volatility per candle, needs wider SL but is more predictable
+    # Altcoins: higher volatility, need tighter SL but more noise
+    asset_overrides: dict = field(
+        default_factory=lambda: {
+            "BTC/USDT": {
+                "scalp_stop_loss": 0.003,  # 0.3% (BTC is tighter)
+                "scalp_take_profit_min": 0.009,  # 0.9% TP1
+                "scalp_take_profit_max": 0.018,  # 1.8% TP2
+            },
+            "ETH/USDT": {
+                "scalp_stop_loss": 0.004,  # 0.4%
+                "scalp_take_profit_min": 0.012,
+                "scalp_take_profit_max": 0.024,
+            },
+        }
+    )
+
+    # Correlation guard — max same-direction trades on correlated assets
+    max_correlated_trades: int = 2  # max 2 longs on BTC+ETH+SOL
+    correlation_groups: list[list[str]] = field(
+        default_factory=lambda: [
+            ["BTC/USDT", "ETH/USDT", "SOL/USDT", "LINK/USDT"],
+            ["ARB/USDT", "OP/USDT"],  # L2s move together
+            ["DOGE/USDT", "POL/USDT"],  # meme/low-cap
+        ]
+    )
+
+    # Funding rate filter — avoid entering against funding
+    max_funding_rate_long: float = 0.0003  # skip longs if funding > 0.03%
+    max_funding_rate_short: float = -0.0003  # skip shorts if funding < -0.03%
+
     # Execution
     use_trailing_stop: bool = True
-    trailing_stop_activation: float = 0.008  # activate trailing after 0.8% profit
+    trailing_stop_activation: float = 0.008  # activate after 0.8% profit
     trailing_stop_callback: float = 0.003  # trail by 0.3%
     min_confidence: float = 5.0  # require decent confidence to trade
