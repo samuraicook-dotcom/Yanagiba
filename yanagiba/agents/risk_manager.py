@@ -76,14 +76,13 @@ class RiskManager:
         # Cap at max leverage
         position_size_pct = min(position_size_pct, self.config.max_leverage)
 
-        # Cap margin usage: each position uses (position_size_pct / leverage) of portfolio as margin
-        # Exposure tracks margin used, not notional — so leveraged positions still fit
-        leverage = min(position_size_pct, self.config.max_leverage) if position_size_pct > 1 else 1.0
-        margin_pct = position_size_pct / leverage if leverage > 0 else position_size_pct
+        # Cap margin usage: margin = notional / max_leverage = position_size_pct / max_leverage
+        # e.g. 5x position / 20x max leverage = 25% margin used
+        margin_pct = position_size_pct / self.config.max_leverage
         remaining_margin = self.config.max_portfolio_risk - portfolio.total_exposure_pct
         if margin_pct > remaining_margin:
             # Scale down position to fit remaining margin
-            position_size_pct = remaining_margin * leverage
+            position_size_pct = remaining_margin * self.config.max_leverage
 
         if position_size_pct <= 0:
             return RiskAssessment(
