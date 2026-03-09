@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import ccxt.async_support as ccxt
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("yanagiba")
 
 
 class MarketDataProvider:
@@ -79,8 +82,10 @@ class MarketDataProvider:
     ) -> dict[str, pd.DataFrame]:
         tasks = [self.fetch_ohlcv(symbol, tf, limit) for tf in timeframes]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        return {
-            tf: result
-            for tf, result in zip(timeframes, results)
-            if isinstance(result, pd.DataFrame)
-        }
+        out = {}
+        for tf, result in zip(timeframes, results):
+            if isinstance(result, pd.DataFrame):
+                out[tf] = result
+            elif isinstance(result, Exception):
+                logger.warning(f"Failed to fetch {symbol} {tf}: {result}")
+        return out

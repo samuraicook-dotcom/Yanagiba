@@ -286,7 +286,7 @@ def main():
 
     # API keys from .env file or environment variables
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
-    config.api_secret = os.environ.get("BINANCE_API_SECRET", "")
+    config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
 
     # Parse CLI args
     if "--live" in sys.argv:
