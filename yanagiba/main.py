@@ -27,6 +27,7 @@ from yanagiba.agents.risk_manager import RiskManager
 from yanagiba.agents.strategy_engine import StrategyEngine
 from yanagiba.data.market_data import MarketDataProvider
 from yanagiba.data.sentiment import SentimentTracker
+from yanagiba.data.telegram import TelegramNotifier
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import PortfolioState
 
@@ -41,7 +42,7 @@ console = Console()
 class TradingBot:
     """Main orchestrator that runs the 4-agent trading pipeline."""
 
-    def __init__(self, config: TradingConfig | None = None):
+    def __init__(self, config: TradingConfig | None = None, telegram: TelegramNotifier | None = None):
         self.config = config or TradingConfig()
         self.data_provider = MarketDataProvider(
             self.config.exchange, self.config.sandbox, self.config.market_type,
@@ -52,6 +53,7 @@ class TradingBot:
         self.strategy = StrategyEngine(self.config)
         self.risk = RiskManager(self.config)
         self.execution = ExecutionEngine(self.config)
+        self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = PortfolioState(total_value=50.0, cash=50.0)
         self._running = False
 
@@ -80,12 +82,20 @@ class TradingBot:
                     f"added {len(self.config.gaming_tokens)} gaming tokens"
                 )
 
+        await self.telegram.notify_cycle_start(timestamp, all_assets)
+
         for symbol in all_assets:
             result = await self._process_asset(symbol, sentiment_report)
             if result:
                 cycle_results.append(result)
 
         self._print_portfolio_summary()
+        await self.telegram.notify_portfolio({
+            "total_value": self.portfolio.total_value,
+            "cash": self.portfolio.cash,
+            "exposure": self.portfolio.total_exposure_pct,
+            "daily_pnl": self.portfolio.daily_pnl,
+        })
         return cycle_results
 
     async def _process_asset(self, symbol: str, sentiment_report) -> dict | None:
@@ -137,8 +147,10 @@ class TradingBot:
                         f"  APPROVED: {sig.direction.value} {sig.asset} "
                         f"(confidence={sig.confidence_score}, R:R={sig.risk_reward})"
                     )
+                    await self.telegram.notify_trade_approved(sig.to_dict())
                 else:
                     logger.info(f"  REJECTED: {sig.strategy} — {risk_assessment.reason}")
+                    await self.telegram.notify_trade_rejected(sig.strategy, risk_assessment.reason)
 
             if not approved_trades:
                 logger.info(f"No trades approved for {symbol}")
@@ -169,6 +181,7 @@ class TradingBot:
 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}")
+            await self.telegram.notify_error(symbol, str(e))
             return None
 
     def _print_sentiment(self, report):
@@ -233,7 +246,12 @@ class TradingBot:
         console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
         console.print(f"  Assets: {', '.join(self.config.assets)}")
         console.print(f"  Interval: {interval_seconds}s")
+        console.print(f"  Telegram: {'enabled' if self.telegram.enabled else 'disabled'}")
         console.print()
+        await self.telegram.notify_startup(
+            self.config.exchange, self.config.sandbox,
+            list(self.config.assets), interval_seconds,
+        )
 
         try:
             while self._running:
@@ -250,6 +268,8 @@ class TradingBot:
 
     async def shutdown(self):
         self._running = False
+        await self.telegram.notify_shutdown()
+        await self.telegram.close()
         await self.data_provider.close()
         await self.sentiment_tracker.close()
         console.print("[bold red]Yanagiba shut down[/]")
@@ -292,7 +312,16 @@ def main():
         if idx + 1 < len(sys.argv):
             interval = int(sys.argv[idx + 1])
 
-    bot = TradingBot(config)
+    telegram = TelegramNotifier(
+        bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
+    )
+    if telegram.enabled:
+        console.print("[bold green]Telegram notifications enabled[/]")
+    else:
+        console.print("[dim]Telegram notifications disabled (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env)[/]")
+
+    bot = TradingBot(config, telegram=telegram)
 
     loop = asyncio.new_event_loop()
 
