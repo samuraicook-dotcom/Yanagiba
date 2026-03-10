@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Yanagiba — Trading Bot Configuration</title>
+  <title>Yanagiba — Trading Dashboard</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -14,16 +14,31 @@
     <aside class="sidebar">
       <div class="sidebar-logo">
         <h1>Yanagiba</h1>
-        <div class="subtitle">Trading Bot Config</div>
+        <div class="subtitle">Trading Dashboard</div>
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-section-label">Overview</div>
-        <div class="nav-item active" data-panel="dashboard">
-          <span class="nav-icon">&#9632;</span> Dashboard
+        <div class="nav-section-label">Trading</div>
+        <div class="nav-item active" data-panel="overview">
+          <span class="nav-icon">&#9632;</span> Overview
+        </div>
+        <div class="nav-item" data-panel="positions">
+          <span class="nav-icon">&#9650;</span> Positions
+        </div>
+        <div class="nav-item" data-panel="history">
+          <span class="nav-icon">&#9776;</span> Trade History
+        </div>
+        <div class="nav-item" data-panel="performance">
+          <span class="nav-icon">&#9733;</span> Performance
+        </div>
+        <div class="nav-item" data-panel="logs">
+          <span class="nav-icon">&#9654;</span> Bot Logs
         </div>
 
         <div class="nav-section-label">Configuration</div>
+        <div class="nav-item" data-panel="dashboard">
+          <span class="nav-icon">&#9881;</span> Config Overview
+        </div>
         <div class="nav-item" data-panel="risk">
           <span class="nav-icon">&#9888;</span> Risk Management
         </div>
@@ -57,8 +72,173 @@
     <!-- Main Content -->
     <main class="main-content">
 
-      <!-- ============ DASHBOARD ============ -->
-      <div class="config-panel active" id="panel-dashboard">
+      <!-- ============ LIVE OVERVIEW ============ -->
+      <div class="config-panel active" id="panel-overview">
+        <div class="page-header">
+          <h2>Trading Overview</h2>
+          <p>Live portfolio status and bot health</p>
+        </div>
+
+        <!-- Bot Status Banner -->
+        <div class="bot-status-banner" id="bot-status-banner">
+          <span class="status-dot" id="bot-dot"></span>
+          <span id="bot-status-text">Checking...</span>
+          <span class="auto-refresh-label">Auto-refresh: 10s</span>
+        </div>
+
+        <!-- Portfolio Stats -->
+        <div class="stats-row">
+          <div class="stat-box stat-green">
+            <div class="stat-value" id="live-total-value">--</div>
+            <div class="stat-label">Portfolio Value</div>
+          </div>
+          <div class="stat-box stat-blue">
+            <div class="stat-value" id="live-cash">--</div>
+            <div class="stat-label">Available Cash</div>
+          </div>
+          <div class="stat-box stat-yellow">
+            <div class="stat-value" id="live-exposure">--</div>
+            <div class="stat-label">Exposure</div>
+          </div>
+          <div class="stat-box" id="pnl-box">
+            <div class="stat-value" id="live-daily-pnl">--</div>
+            <div class="stat-label">Daily P&L</div>
+          </div>
+        </div>
+
+        <!-- Quick Stats Row 2 -->
+        <div class="stats-row">
+          <div class="stat-box stat-cyan">
+            <div class="stat-value" id="live-open-count">0</div>
+            <div class="stat-label">Open Positions</div>
+          </div>
+          <div class="stat-box stat-purple">
+            <div class="stat-value" id="live-total-trades">0</div>
+            <div class="stat-label">Total Trades</div>
+          </div>
+          <div class="stat-box" id="winrate-box">
+            <div class="stat-value" id="live-win-rate">--</div>
+            <div class="stat-label">Win Rate</div>
+          </div>
+          <div class="stat-box" id="totalpnl-box">
+            <div class="stat-value" id="live-total-pnl">--</div>
+            <div class="stat-label">All-Time P&L</div>
+          </div>
+        </div>
+
+        <!-- Open Positions Quick View -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9650;</span> Open Positions</div>
+            <span class="card-badge badge-blue" id="pos-count-badge">0 open</span>
+          </div>
+          <div id="overview-positions-list">
+            <div class="empty-state">No open positions</div>
+          </div>
+        </div>
+
+        <!-- Recent Trades Quick View -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9776;</span> Recent Trades</div>
+          </div>
+          <div id="overview-recent-trades">
+            <div class="empty-state">No trades yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ POSITIONS ============ -->
+      <div class="config-panel" id="panel-positions">
+        <div class="page-header">
+          <h2>Open Positions</h2>
+          <p>Currently tracked positions with entry, SL, and margin</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9650;</span> Active Positions</div>
+            <span class="card-badge badge-blue" id="positions-count-badge">0 open</span>
+          </div>
+          <div id="positions-table-container">
+            <div class="empty-state">No open positions</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ TRADE HISTORY ============ -->
+      <div class="config-panel" id="panel-history">
+        <div class="page-header">
+          <h2>Trade History</h2>
+          <p>All trades from the journal (last 50)</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9776;</span> Trade Log</div>
+          </div>
+          <div id="history-table-container">
+            <div class="empty-state">No trade history yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ PERFORMANCE ============ -->
+      <div class="config-panel" id="panel-performance">
+        <div class="page-header">
+          <h2>Performance Analytics</h2>
+          <p>Win rate, P&L, drawdown, and strategy breakdown</p>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-box stat-green">
+            <div class="stat-value" id="perf-win-rate">--</div>
+            <div class="stat-label">Win Rate</div>
+          </div>
+          <div class="stat-box" id="perf-pnl-box">
+            <div class="stat-value" id="perf-total-pnl">--</div>
+            <div class="stat-label">Total P&L</div>
+          </div>
+          <div class="stat-box stat-red">
+            <div class="stat-value" id="perf-max-dd">--</div>
+            <div class="stat-label">Max Drawdown</div>
+          </div>
+          <div class="stat-box stat-cyan">
+            <div class="stat-value" id="perf-total-trades">0</div>
+            <div class="stat-label">Total Trades</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9733;</span> Strategy Breakdown</div>
+          </div>
+          <div id="strategy-breakdown">
+            <div class="empty-state">No strategy data yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ BOT LOGS ============ -->
+      <div class="config-panel" id="panel-logs">
+        <div class="page-header">
+          <h2>Bot Logs</h2>
+          <p>Live log output from the trading bot</p>
+        </div>
+
+        <div class="card" style="padding: 0;">
+          <div class="card-header" style="padding: 16px 24px;">
+            <div class="card-title"><span class="icon">&#9654;</span> Log Output</div>
+            <button class="btn btn-sm btn-outline" onclick="refreshLogs()">Refresh</button>
+          </div>
+          <div class="log-container" id="log-container">
+            <div class="empty-state" style="padding: 40px;">No logs available</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ DASHBOARD (CONFIG) ============ -->
+      <div class="config-panel" id="panel-dashboard">
         <div class="page-header">
           <h2>Dashboard</h2>
           <p>Overview of your current trading configuration</p>

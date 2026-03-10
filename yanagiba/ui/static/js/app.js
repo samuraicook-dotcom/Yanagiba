@@ -447,5 +447,350 @@ function showToast(message, type) {
   }
 });
 
+// ============================================
+//  LIVE TRADING DASHBOARD
+// ============================================
+
+// ---- Helpers ----
+function formatUSD(val) {
+  if (val === undefined || val === null) return '--';
+  return '$' + Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPnL(val) {
+  if (val === undefined || val === null) return '--';
+  const prefix = val >= 0 ? '+' : '';
+  return prefix + '$' + Math.abs(val).toFixed(2);
+}
+
+function pnlClass(val) {
+  if (val > 0) return 'pnl-positive';
+  if (val < 0) return 'pnl-negative';
+  return 'pnl-zero';
+}
+
+function dirClass(dir) {
+  const d = (dir || '').toLowerCase();
+  if (d === 'long' || d === 'buy') return 'direction-long';
+  return 'direction-short';
+}
+
+function statusChip(status) {
+  const s = (status || 'unknown').toLowerCase();
+  let cls = '';
+  if (s === 'placed') cls = 'status-placed';
+  else if (s === 'simulated') cls = 'status-simulated';
+  else if (s === 'closed') cls = 'status-closed';
+  else if (s === 'rejected') cls = 'status-rejected';
+  else cls = 'status-placed';
+  return `<span class="status-chip ${cls}">${status}</span>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ---- Fetch Live Portfolio ----
+async function refreshPortfolio() {
+  try {
+    const res = await fetch('/api/portfolio');
+    const p = await res.json();
+
+    const setText = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+
+    setText('live-total-value', formatUSD(p.total_value));
+    setText('live-cash', formatUSD(p.cash));
+    setText('live-exposure', (p.total_exposure_pct * 100).toFixed(1) + '%');
+    setText('live-daily-pnl', formatPnL(p.daily_pnl));
+
+    // Color the PnL box
+    const pnlBox = document.getElementById('pnl-box');
+    if (pnlBox) {
+      pnlBox.className = 'stat-box ' + (p.daily_pnl >= 0 ? 'positive' : 'negative');
+    }
+  } catch (e) {
+    console.error('Portfolio fetch error:', e);
+  }
+}
+
+// ---- Fetch Open Positions ----
+async function refreshPositions() {
+  try {
+    const res = await fetch('/api/positions');
+    const positions = await res.json();
+
+    // Update counts
+    const countBadge = document.getElementById('pos-count-badge');
+    if (countBadge) countBadge.textContent = positions.length + ' open';
+    const countBadge2 = document.getElementById('positions-count-badge');
+    if (countBadge2) countBadge2.textContent = positions.length + ' open';
+    const openCount = document.getElementById('live-open-count');
+    if (openCount) openCount.textContent = positions.length;
+
+    // Build table for overview
+    const overviewContainer = document.getElementById('overview-positions-list');
+    const fullContainer = document.getElementById('positions-table-container');
+
+    if (positions.length === 0) {
+      const emptyHtml = '<div class="empty-state">No open positions</div>';
+      if (overviewContainer) overviewContainer.innerHTML = emptyHtml;
+      if (fullContainer) fullContainer.innerHTML = emptyHtml;
+      return;
+    }
+
+    const tableHtml = `
+      <table class="positions-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Entry</th>
+            <th>SL</th>
+            <th>TP</th>
+            <th>Margin</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${positions.map(p => `
+            <tr>
+              <td>${escapeHtml(p.symbol || '?')}</td>
+              <td class="${dirClass(p.side)}">${(p.side || '?').toUpperCase()}</td>
+              <td>${formatUSD(p.entry_price)}</td>
+              <td>${formatUSD(p.stop_loss)}</td>
+              <td>${p.take_profits && p.take_profits.length > 0 ? formatUSD(p.take_profits[0]) : '--'}</td>
+              <td>${formatUSD(p.margin_usd)}</td>
+              <td>${statusChip(p.status || 'open')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+
+    if (overviewContainer) overviewContainer.innerHTML = tableHtml;
+    if (fullContainer) fullContainer.innerHTML = tableHtml;
+  } catch (e) {
+    console.error('Positions fetch error:', e);
+  }
+}
+
+// ---- Fetch Performance ----
+async function refreshPerformance() {
+  try {
+    const res = await fetch('/api/performance');
+    const perf = await res.json();
+
+    const setText = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+
+    // Overview stats
+    setText('live-total-trades', perf.total_trades);
+    setText('live-win-rate', perf.win_rate + '%');
+    setText('live-total-pnl', formatPnL(perf.total_pnl));
+
+    // Color total PnL
+    const totalPnlBox = document.getElementById('totalpnl-box');
+    if (totalPnlBox) {
+      totalPnlBox.className = 'stat-box ' + (perf.total_pnl >= 0 ? 'positive' : 'negative');
+    }
+
+    // Performance page
+    setText('perf-win-rate', perf.win_rate + '%');
+    setText('perf-total-pnl', formatPnL(perf.total_pnl));
+    setText('perf-max-dd', perf.max_drawdown + '%');
+    setText('perf-total-trades', perf.total_trades);
+
+    const perfPnlBox = document.getElementById('perf-pnl-box');
+    if (perfPnlBox) {
+      perfPnlBox.className = 'stat-box ' + (perf.total_pnl >= 0 ? 'positive' : 'negative');
+    }
+
+    // Strategy breakdown
+    const container = document.getElementById('strategy-breakdown');
+    const strats = perf.strategy_stats || {};
+    const stratNames = Object.keys(strats);
+
+    if (stratNames.length === 0 || !container) {
+      if (container) container.innerHTML = '<div class="empty-state">No strategy data yet</div>';
+      return;
+    }
+
+    // Find max abs PnL for bar scaling
+    const maxPnl = Math.max(1, ...stratNames.map(s => Math.abs(strats[s].pnl)));
+
+    container.innerHTML = `
+      <table class="strategy-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th>Trades</th>
+            <th>Wins</th>
+            <th>Losses</th>
+            <th>Win Rate</th>
+            <th>P&L</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${stratNames.sort((a, b) => strats[b].pnl - strats[a].pnl).map(name => {
+            const s = strats[name];
+            const wr = s.trades > 0 ? (s.wins / s.trades * 100).toFixed(1) : '0';
+            return `
+              <tr>
+                <td>${escapeHtml(name)}</td>
+                <td>${s.trades}</td>
+                <td>${s.wins}</td>
+                <td>${s.losses}</td>
+                <td>${wr}%</td>
+                <td class="${pnlClass(s.pnl)}">${formatPnL(s.pnl)}</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    console.error('Performance fetch error:', e);
+  }
+}
+
+// ---- Fetch Recent Trades ----
+async function refreshTrades() {
+  try {
+    const res = await fetch('/api/trades');
+    const trades = await res.json();
+
+    // Overview recent (last 5)
+    const overviewContainer = document.getElementById('overview-recent-trades');
+    const historyContainer = document.getElementById('history-table-container');
+
+    if (trades.length === 0) {
+      const emptyHtml = '<div class="empty-state">No trades yet</div>';
+      if (overviewContainer) overviewContainer.innerHTML = emptyHtml;
+      if (historyContainer) historyContainer.innerHTML = emptyHtml;
+      return;
+    }
+
+    function buildTradeTable(tradeList) {
+      return `
+        <table class="trades-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Symbol</th>
+              <th>Direction</th>
+              <th>Strategy</th>
+              <th>Entry</th>
+              <th>SL</th>
+              <th>Status</th>
+              <th>P&L</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tradeList.map(t => {
+              const time = t.timestamp ? t.timestamp.substring(0, 16).replace('T', ' ') : '--';
+              return `
+                <tr>
+                  <td>${time}</td>
+                  <td>${escapeHtml(t.symbol || '?')}</td>
+                  <td class="${dirClass(t.direction)}">${(t.direction || t.close_type || '--').toUpperCase()}</td>
+                  <td>${escapeHtml(t.strategy || '--')}</td>
+                  <td>${t.entry ? formatUSD(t.entry) : '--'}</td>
+                  <td>${t.stop_loss ? formatUSD(t.stop_loss) : '--'}</td>
+                  <td>${statusChip(t.status || 'closed')}</td>
+                  <td class="${pnlClass(t.pnl)}">${t.pnl !== undefined ? formatPnL(t.pnl) : '--'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    if (overviewContainer) overviewContainer.innerHTML = buildTradeTable(trades.slice(0, 5));
+    if (historyContainer) historyContainer.innerHTML = buildTradeTable(trades);
+  } catch (e) {
+    console.error('Trades fetch error:', e);
+  }
+}
+
+// ---- Fetch Bot Status ----
+async function refreshBotStatus() {
+  try {
+    const res = await fetch('/api/bot/status');
+    const data = await res.json();
+    const dot = document.getElementById('bot-dot');
+    const text = document.getElementById('bot-status-text');
+    if (dot && text) {
+      if (data.running) {
+        dot.className = 'status-dot online';
+        text.textContent = 'Bot is running';
+      } else {
+        dot.className = 'status-dot offline';
+        text.textContent = 'Bot is stopped';
+      }
+    }
+  } catch (e) {
+    console.error('Bot status fetch error:', e);
+  }
+}
+
+// ---- Fetch Logs ----
+async function refreshLogs() {
+  try {
+    const res = await fetch('/api/logs?lines=100');
+    const lines = await res.json();
+    const container = document.getElementById('log-container');
+    if (!container) return;
+
+    if (lines.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding: 40px;">No logs available</div>';
+      return;
+    }
+
+    container.innerHTML = lines.map(line => {
+      let cls = 'log-line';
+      if (line.includes('ERROR')) cls += ' log-error';
+      else if (line.includes('WARNING')) cls += ' log-warning';
+      else if (line.includes('APPROVED') || line.includes('POSITION CLOSED') || line.includes('ORDER STATUS'))
+        cls += ' log-info-highlight';
+      return `<div class="${cls}">${escapeHtml(line)}</div>`;
+    }).join('');
+
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+  } catch (e) {
+    console.error('Logs fetch error:', e);
+  }
+}
+
+// ---- Refresh All Live Data ----
+async function refreshAllLiveData() {
+  await Promise.all([
+    refreshPortfolio(),
+    refreshPositions(),
+    refreshPerformance(),
+    refreshTrades(),
+    refreshBotStatus(),
+  ]);
+}
+
+// ---- Auto-refresh every 10 seconds ----
+let liveRefreshInterval = null;
+
+function startLiveRefresh() {
+  refreshAllLiveData();
+  liveRefreshInterval = setInterval(refreshAllLiveData, 10000);
+}
+
+function stopLiveRefresh() {
+  if (liveRefreshInterval) {
+    clearInterval(liveRefreshInterval);
+    liveRefreshInterval = null;
+  }
+}
+
 // ---- Init ----
 loadConfig();
+startLiveRefresh();

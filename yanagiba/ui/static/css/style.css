@@ -782,3 +782,249 @@ input[type="range"]::-moz-range-thumb {
 .main-content {
   padding-bottom: 100px;
 }
+
+/* ============================================
+   Trading Dashboard — Live Data Styles
+   ============================================ */
+
+/* Bot Status Banner */
+.bot-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.status-dot.offline {
+  background: var(--accent-red);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.auto-refresh-label {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px;
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* Data Tables */
+.positions-table,
+.trades-table,
+.strategy-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.positions-table th,
+.trades-table th,
+.strategy-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.positions-table td,
+.trades-table td,
+.strategy-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.positions-table tr:last-child td,
+.trades-table tr:last-child td,
+.strategy-table tr:last-child td {
+  border-bottom: none;
+}
+
+.positions-table tr:hover td,
+.trades-table tr:hover td,
+.strategy-table tr:hover td {
+  background: var(--bg-card-hover);
+}
+
+/* Direction Tags */
+.direction-long {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.direction-short {
+  color: var(--accent-red);
+  font-weight: 600;
+}
+
+/* PnL Colors */
+.pnl-positive {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.pnl-negative {
+  color: var(--accent-red);
+  font-weight: 600;
+}
+
+.pnl-zero {
+  color: var(--text-muted);
+}
+
+/* Status Chips */
+.status-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-placed {
+  background: var(--accent-blue-dim);
+  color: var(--accent-blue);
+}
+
+.status-simulated {
+  background: var(--accent-purple-dim);
+  color: var(--accent-purple);
+}
+
+.status-closed {
+  background: var(--accent-green-dim);
+  color: var(--accent-green);
+}
+
+.status-rejected {
+  background: var(--accent-red-dim);
+  color: var(--accent-red);
+}
+
+/* Log Container */
+.log-container {
+  background: #050810;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 16px 20px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.log-line {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line.log-error {
+  color: var(--accent-red);
+}
+
+.log-line.log-warning {
+  color: var(--accent-yellow);
+}
+
+.log-line.log-info-highlight {
+  color: var(--accent-green);
+}
+
+/* Strategy Breakdown Bar */
+.strategy-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.strategy-bar .bar-label {
+  width: 160px;
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.strategy-bar .bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.strategy-bar .bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.strategy-bar .bar-fill.positive {
+  background: var(--accent-green);
+}
+
+.strategy-bar .bar-fill.negative {
+  background: var(--accent-red);
+}
+
+.strategy-bar .bar-stats {
+  width: 200px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Dynamic PnL stat boxes */
+#pnl-box.positive { border-color: var(--accent-green-dim); }
+#pnl-box.positive .stat-value { color: var(--accent-green); }
+#pnl-box.negative { border-color: var(--accent-red-dim); }
+#pnl-box.negative .stat-value { color: var(--accent-red); }
+
+#totalpnl-box.positive .stat-value { color: var(--accent-green); }
+#totalpnl-box.negative .stat-value { color: var(--accent-red); }
+
+#winrate-box .stat-value { color: var(--accent-cyan); }
