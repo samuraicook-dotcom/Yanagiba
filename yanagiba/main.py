@@ -512,6 +512,14 @@ class TradingBot:
             console.print("[bold red]Preflight failed — exiting[/]")
             return
 
+        # Start Telegram command listener in background
+        cmd_task = None
+        if self.telegram.enabled:
+            cmd_task = asyncio.create_task(
+                self.telegram.start_command_listener(self.handle_telegram_command)
+            )
+            console.print("[bold green]Telegram commands enabled[/] (/help for list)")
+
         try:
             while self._running:
                 try:
@@ -546,7 +554,90 @@ class TradingBot:
         except asyncio.CancelledError:
             pass
         finally:
+            if cmd_task and not cmd_task.done():
+                cmd_task.cancel()
             await self.shutdown()
+
+    async def handle_telegram_command(self, text: str) -> str | None:
+        """Process an incoming Telegram /command and return a reply."""
+        cmd = text.split()[0].lower().split("@")[0]  # strip @botname
+
+        if cmd == "/status":
+            p = self.portfolio
+            pos = self.position_tracker
+            return (
+                f"📊 *Bot Status*\n"
+                f"Mode: `{'LIVE' if not self.config.sandbox else 'SANDBOX'}`\n"
+                f"Running: `{self._running}`\n"
+                f"Portfolio: `${p.total_value:,.2f}`\n"
+                f"Cash: `${p.cash:,.2f}`\n"
+                f"Exposure: `{p.total_exposure_pct:.2%}`\n"
+                f"Open positions: `{pos.open_count}`\n"
+                f"Open margin: `${pos.open_margin:.2f}`\n"
+                f"Daily P&L: `{p.daily_pnl:+.2f}`"
+            )
+
+        if cmd == "/pnl":
+            perf = self.journal.get_performance()
+            return (
+                f"💰 *Performance*\n"
+                f"Total trades: `{perf['total_trades']}`\n"
+                f"Wins: `{perf['wins']}` | Losses: `{perf['losses']}`\n"
+                f"Win rate: `{perf['win_rate']}%`\n"
+                f"Total PnL: `${perf['total_pnl']:+.2f}`\n"
+                f"Max drawdown: `{perf['max_drawdown']}%`\n"
+                f"Best strategy: `{perf['best_strategy']}`\n"
+                f"Worst strategy: `{perf['worst_strategy']}`"
+            )
+
+        if cmd == "/positions":
+            positions = self.position_tracker.positions
+            if not positions:
+                return "📭 No open positions"
+            lines = ["📈 *Open Positions*"]
+            for p in positions:
+                lines.append(
+                    f"\n`{p.symbol}` {p.side.upper()}\n"
+                    f"  Entry: `${p.entry_price:,.4f}`\n"
+                    f"  SL: `${p.stop_loss:,.4f}`\n"
+                    f"  Margin: `${p.margin_usd:.2f}`"
+                )
+            return "\n".join(lines)
+
+        if cmd == "/trades":
+            perf = self.journal.get_performance()
+            strats = self.journal._stats.get("strategy_stats", {})
+            lines = [
+                f"📋 *Trade History*\n"
+                f"Total: `{perf['total_trades']}` | "
+                f"W: `{perf['wins']}` L: `{perf['losses']}`\n"
+            ]
+            if strats:
+                lines.append("*Per-Strategy:*")
+                for name, s in sorted(strats.items(), key=lambda x: x[1]["pnl"], reverse=True):
+                    wr = round(s["wins"] / s["trades"] * 100, 1) if s["trades"] > 0 else 0
+                    lines.append(
+                        f"  `{name}`: {s['trades']} trades, "
+                        f"{wr}% WR, ${s['pnl']:+.2f}"
+                    )
+            return "\n".join(lines)
+
+        if cmd == "/stop":
+            self._running = False
+            return "🛑 *Stopping bot after current cycle...*"
+
+        if cmd == "/help":
+            return (
+                "🤖 *Yanagiba Commands*\n"
+                "`/status` — Portfolio & bot status\n"
+                "`/pnl` — Performance & win rate\n"
+                "`/positions` — Open positions\n"
+                "`/trades` — Trade history by strategy\n"
+                "`/stop` — Gracefully stop the bot\n"
+                "`/help` — This message"
+            )
+
+        return None  # unknown command, ignore
 
     async def shutdown(self):
         self._running = False

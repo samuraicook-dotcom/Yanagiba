@@ -1,10 +1,15 @@
-"""Telegram notification module for Yanagiba trading bot."""
+"""Telegram notification module for Yanagiba trading bot.
+
+Supports:
+- Outgoing notifications (trade updates, portfolio status)
+- Incoming commands via long-polling (/status, /pnl, /trades, /stop, /help)
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, Coroutine
 
 import aiohttp
 
@@ -139,6 +144,54 @@ class TelegramNotifier:
             f"Assets: {len(assets)}\n"
             f"Interval: {interval}s"
         )
+
+    # --- Incoming command handling ---
+
+    async def start_command_listener(
+        self,
+        handler: Callable[[str], Coroutine[Any, Any, str | None]],
+    ):
+        """Long-poll Telegram for incoming /commands and dispatch to handler.
+
+        handler(command_text) should return a reply string or None.
+        Runs forever — launch as an asyncio task.
+        """
+        if not self.enabled:
+            return
+        offset = 0
+        logger.info("Telegram command listener started")
+        while True:
+            try:
+                session = await self._get_session()
+                async with session.get(
+                    f"{self.base_url}/getUpdates",
+                    params={"offset": offset, "timeout": 30},
+                    timeout=aiohttp.ClientTimeout(total=40),
+                ) as resp:
+                    if resp.status != 200:
+                        await asyncio.sleep(5)
+                        continue
+                    data = await resp.json()
+                    for update in data.get("result", []):
+                        offset = update["update_id"] + 1
+                        msg = update.get("message", {})
+                        text = msg.get("text", "")
+                        chat_id = str(msg.get("chat", {}).get("id", ""))
+                        # Only respond to our authorized chat
+                        if chat_id != self.chat_id or not text.startswith("/"):
+                            continue
+                        try:
+                            reply = await handler(text.strip())
+                            if reply:
+                                await self.send(reply)
+                        except Exception as e:
+                            logger.warning(f"Command handler error: {e}")
+                            await self.send(f"Command error: {e}")
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug(f"Command poll error: {e}")
+                await asyncio.sleep(5)
 
     async def close(self):
         if self._session and not self._session.closed:
