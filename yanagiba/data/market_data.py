@@ -22,15 +22,18 @@ class ExchangeErrorKind:
 
 
 def classify_exchange_error(exc: Exception) -> str:
-    """Classify a ccxt exception as fatal (auth) or transient (network/rate)."""
+    """Classify a ccxt exception as fatal (auth) or transient (network/rate).
+
+    Checks most-specific subclasses first since ccxt uses deep inheritance.
+    """
     if isinstance(exc, ccxt.AuthenticationError):
         return ExchangeErrorKind.AUTH
     if isinstance(exc, (ccxt.RateLimitExceeded, ccxt.DDoSProtection)):
         return ExchangeErrorKind.RATE_LIMIT
-    if isinstance(exc, (ccxt.NetworkError, ccxt.RequestTimeout)):
-        return ExchangeErrorKind.NETWORK
     if isinstance(exc, ccxt.ExchangeNotAvailable):
         return ExchangeErrorKind.EXCHANGE
+    if isinstance(exc, (ccxt.NetworkError, ccxt.RequestTimeout)):
+        return ExchangeErrorKind.NETWORK
     return ExchangeErrorKind.OTHER
 
 
