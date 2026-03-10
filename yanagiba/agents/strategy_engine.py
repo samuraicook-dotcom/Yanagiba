@@ -295,9 +295,11 @@ class StrategyEngine:
         return None
 
     def _deduplicate(self, signals: list[TradeSignal]) -> list[TradeSignal]:
+        # Keep only the single highest-confidence signal per asset
+        # Prevents contradictory LONG + SHORT on the same pair
         best: dict[str, TradeSignal] = {}
         for sig in signals:
-            key = f"{sig.asset}_{sig.direction.value}"
+            key = sig.asset
             if key not in best or sig.confidence_score > best[key].confidence_score:
                 best[key] = sig
         return sorted(best.values(), key=lambda s: s.confidence_score, reverse=True)
