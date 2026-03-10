@@ -363,8 +363,16 @@ class TradingBot:
         console.print(table)
 
     async def run_loop(self, interval_seconds: int = 180):
-        """Run continuous trading loop."""
+        """Run continuous trading loop with crash resilience.
+
+        Individual cycle failures are caught and logged — the bot stays alive.
+        After repeated consecutive failures it backs off to avoid spam, then
+        resets on the next successful cycle.
+        """
         self._running = True
+        consecutive_failures = 0
+        max_backoff = 300  # 5 min cap on failure backoff
+
         console.print("[bold green]Yanagiba Trading Bot started[/]")
         console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
         console.print(f"  Assets: {', '.join(self.config.assets)}")
@@ -378,11 +386,25 @@ class TradingBot:
 
         try:
             while self._running:
-                results = await self.run_cycle()
-                if results:
-                    # Output JSON for automation
-                    for r in results:
-                        logger.info(f"Cycle result: {json.dumps(r, indent=2, default=str)}")
+                try:
+                    results = await self.run_cycle()
+                    consecutive_failures = 0  # reset on success
+                    if results:
+                        for r in results:
+                            logger.info(f"Cycle result: {json.dumps(r, indent=2, default=str)}")
+                except asyncio.CancelledError:
+                    raise  # let cancellation propagate
+                except Exception as e:
+                    consecutive_failures += 1
+                    backoff = min(interval_seconds * consecutive_failures, max_backoff)
+                    logger.error(
+                        f"Cycle failed ({consecutive_failures} in a row): {e} — "
+                        f"retrying in {backoff}s"
+                    )
+                    await self.telegram.notify_error("CYCLE", str(e))
+                    await asyncio.sleep(backoff)
+                    continue  # skip the normal sleep, we already waited
+
                 await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             pass

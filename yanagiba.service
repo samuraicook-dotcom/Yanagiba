@@ -1,0 +1,28 @@
+[Unit]
+Description=Yanagiba Crypto Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/Yanagiba
+ExecStart=/usr/local/bin/python3 -m yanagiba.main --live
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# Graceful shutdown (sends SIGTERM, which the bot handles)
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yanagiba
+
+# Environment file for API keys
+EnvironmentFile=-/home/user/Yanagiba/.env
+
+[Install]
+WantedBy=multi-user.target
