@@ -42,7 +42,7 @@ class TradingConfig:
     )
 
     # Risk limits (micro account ~$50, needs leverage to meet minimums)
-    max_portfolio_risk: float = 0.60  # 60% max margin — room for 3 trades + buffer
+    max_portfolio_risk: float = 0.80  # 80% max margin exposure
     max_risk_per_trade: float = 0.03  # 3% risk per trade ($1.50 on $50 — survive 10 losses)
     max_leverage: float = 20.0  # up to 20x leverage (needed to meet $5 min notional)
     daily_loss_limit: float = 0.06  # 6% daily loss cap ($3 on $50 — live to trade tomorrow)
