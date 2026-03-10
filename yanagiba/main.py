@@ -74,14 +74,19 @@ class TradingBot:
         console.rule(f"[bold cyan]Yanagiba Cycle — {timestamp}")
 
         # 0. Sync open positions with exchange (detect closed trades)
-        if not self.config.sandbox:
+        if self.config.sandbox:
+            events = await self.position_tracker.simulate_sandbox_fills(
+                self.data_provider.exchange, self.portfolio,
+            )
+        else:
             events = await self.position_tracker.sync_with_exchange(
                 self.data_provider.exchange, self.portfolio,
             )
-            for ev in events:
-                logger.info(f"POSITION EVENT: {ev}")
-            if events:
-                self.journal.update_drawdown(self.portfolio.total_value)
+        for ev in events:
+            logger.info(f"POSITION EVENT: {ev}")
+            await self.telegram.notify_position_closed(ev)
+        if events:
+            self.journal.update_drawdown(self.portfolio.total_value)
 
         # 1. Fetch geopolitical / news sentiment
         logger.info("AGENT 1a: Fetching geopolitical & news sentiment...")
@@ -138,6 +143,7 @@ class TradingBot:
                 cycle_results.append(result)
 
         self._print_portfolio_summary()
+        await self.telegram.flush_rejections()
         await self.telegram.notify_portfolio({
             "total_value": self.portfolio.total_value,
             "cash": self.portfolio.cash,

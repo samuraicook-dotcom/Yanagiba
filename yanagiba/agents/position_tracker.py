@@ -2,7 +2,7 @@
 
 Solves the critical problem of "fire and forget" order placement:
 - Tracks all open positions with entry, SL, TP order IDs
-- Polls exchange for fill status
+- Polls exchange for fill status (live) or simulates fills (sandbox)
 - Updates portfolio exposure when positions close
 - Detects orphaned orders (SL/TP without matching position)
 """
@@ -140,6 +140,85 @@ class PositionTracker:
 
         except Exception as e:
             logger.warning(f"Position sync failed (will retry): {e}")
+
+        return events
+
+    async def simulate_sandbox_fills(
+        self, exchange, portfolio,
+    ) -> list[dict]:
+        """Sandbox mode: check current prices against SL/TP to simulate fills.
+
+        In sandbox/paper trading, the exchange doesn't execute SL/TP orders
+        automatically. We must check prices ourselves each cycle.
+        """
+        if not self.positions:
+            return []
+
+        events = []
+        for pos in list(self.positions):
+            try:
+                ticker = await exchange.fetch_ticker(pos.symbol)
+                price = ticker.get("last", 0)
+                if not price:
+                    continue
+
+                hit = None
+                pnl = 0.0
+                notional = pos.entry_price * pos.quantity
+                fee_cost = notional * (0.0002 + 0.0005)
+
+                is_long = pos.side == "buy"
+                # Check stop loss
+                if is_long and price <= pos.stop_loss:
+                    hit = "stop_loss"
+                    pnl = (pos.stop_loss - pos.entry_price) * pos.quantity - fee_cost
+                elif not is_long and price >= pos.stop_loss:
+                    hit = "stop_loss"
+                    pnl = (pos.entry_price - pos.stop_loss) * pos.quantity - fee_cost
+
+                # Check take profits (TP1 = full close for simplicity)
+                if not hit and pos.take_profits:
+                    tp1 = pos.take_profits[0]
+                    if is_long and price >= tp1:
+                        hit = "take_profit"
+                        pnl = (tp1 - pos.entry_price) * pos.quantity - fee_cost
+                    elif not is_long and price <= tp1:
+                        hit = "take_profit"
+                        pnl = (pos.entry_price - tp1) * pos.quantity - fee_cost
+
+                if hit:
+                    pos.status = "closed"
+                    pos.realized_pnl = pnl
+                    self.total_realized_pnl += pnl
+                    self.positions.remove(pos)
+                    self.closed_positions.append(pos)
+
+                    portfolio.cash += pos.margin_usd + pnl
+                    portfolio.total_value += pnl
+                    portfolio.daily_pnl += pnl
+                    margin_pct = (
+                        pos.margin_usd / portfolio.total_value
+                        if portfolio.total_value > 0 else 0
+                    )
+                    portfolio.total_exposure_pct = max(
+                        0, portfolio.total_exposure_pct - margin_pct,
+                    )
+
+                    event = {
+                        "type": f"sandbox_{hit}",
+                        "symbol": pos.symbol,
+                        "price": round(price, 2),
+                        "pnl": round(pnl, 2),
+                        "portfolio_value": round(portfolio.total_value, 2),
+                    }
+                    events.append(event)
+                    logger.info(
+                        f"SANDBOX {hit.upper()}: {pos.symbol} "
+                        f"@ ${price:,.2f} PnL=${pnl:+.2f} | "
+                        f"Portfolio=${portfolio.total_value:.2f}"
+                    )
+            except Exception as e:
+                logger.debug(f"Sandbox check {pos.symbol}: {e}")
 
         return events
 

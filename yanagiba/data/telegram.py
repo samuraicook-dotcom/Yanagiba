@@ -19,6 +19,8 @@ class TelegramNotifier:
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
         self._session: aiohttp.ClientSession | None = None
         self.enabled = bool(bot_token and chat_id)
+        # Dedup: track rejection reasons this cycle to avoid spam
+        self._cycle_rejections: dict[str, int] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -67,10 +69,35 @@ class TelegramNotifier:
         )
 
     async def notify_trade_rejected(self, strategy: str, reason: str):
+        # Suppress duplicate rejections (same reason) within a cycle
+        if reason in self._cycle_rejections:
+            self._cycle_rejections[reason] += 1
+            return  # silently skip — summary sent at cycle end
+        self._cycle_rejections[reason] = 1
         await self.send(
             f"❌ *Trade Rejected*\n"
             f"Strategy: {strategy}\n"
             f"Reason: {reason}"
+        )
+
+    async def flush_rejections(self):
+        """Send summary of suppressed rejections at end of cycle."""
+        dupes = {r: c for r, c in self._cycle_rejections.items() if c > 1}
+        if dupes:
+            lines = [f"❌ *Rejected ({c}x):* {r}" for r, c in dupes.items()]
+            await self.send("\n".join(lines))
+        self._cycle_rejections.clear()
+
+    async def notify_position_closed(self, event: dict):
+        pnl = event.get("pnl", 0)
+        emoji = "🟢" if pnl >= 0 else "🔴"
+        hit_type = event.get("type", "closed").replace("sandbox_", "").upper()
+        await self.send(
+            f"{emoji} *Position Closed ({hit_type})*\n"
+            f"Symbol: `{event.get('symbol', '?')}`\n"
+            f"Price: `${event.get('price', 0):,.2f}`\n"
+            f"PnL: `${pnl:+.2f}`\n"
+            f"Portfolio: `${event.get('portfolio_value', 0):,.2f}`"
         )
 
     async def notify_portfolio(self, portfolio: dict[str, Any]):
