@@ -24,6 +24,9 @@ dev = [
 [project.scripts]
 yanagiba = "yanagiba.main:main"
 
+[tool.setuptools.packages.find]
+include = ["yanagiba*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
