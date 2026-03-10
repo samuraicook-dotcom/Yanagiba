@@ -247,7 +247,7 @@ class TradingBot:
                 )
                 # Only update exposure if order was actually placed
                 # Track margin as % of portfolio: notional / leverage / portfolio_value
-                if order.status == "placed":
+                if order.status in ("placed", "simulated"):
                     notional = plan.position_size * order.entry
                     asset_overrides = self.config.asset_overrides.get(
                         sig.asset, {}
