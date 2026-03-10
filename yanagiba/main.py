@@ -77,6 +77,7 @@ class TradingBot:
         self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = self._load_portfolio()
         self._running = False
+        self._restart_requested = False
 
     def _load_portfolio(self) -> PortfolioState:
         """Restore portfolio state from disk, or use defaults."""
@@ -626,6 +627,11 @@ class TradingBot:
             self._running = False
             return "🛑 *Stopping bot after current cycle...*"
 
+        if cmd == "/restart":
+            self._running = False
+            self._restart_requested = True
+            return "🔄 *Restarting bot after current cycle...*"
+
         if cmd == "/help":
             return (
                 "🤖 *Yanagiba Commands*\n"
@@ -634,6 +640,7 @@ class TradingBot:
                 "`/positions` — Open positions\n"
                 "`/trades` — Trade history by strategy\n"
                 "`/stop` — Gracefully stop the bot\n"
+                "`/restart` — Restart the bot\n"
                 "`/help` — This message"
             )
 
@@ -737,18 +744,26 @@ def main():
 
     bot = TradingBot(config, telegram=telegram)
 
-    loop = asyncio.new_event_loop()
+    while True:
+        loop = asyncio.new_event_loop()
 
-    def handle_signal(*_):
-        bot._running = False
+        def handle_signal(*_):
+            bot._running = False
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
 
-    try:
-        loop.run_until_complete(bot.run_loop(interval))
-    finally:
-        loop.close()
+        try:
+            loop.run_until_complete(bot.run_loop(interval))
+        finally:
+            loop.close()
+
+        if not bot._restart_requested:
+            break
+
+        # Restart: re-create bot with same config
+        console.print("[bold cyan]Restarting Yanagiba...[/]")
+        bot = TradingBot(config, telegram=telegram)
 
 
 if __name__ == "__main__":
