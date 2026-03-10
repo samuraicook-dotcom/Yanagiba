@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yanagiba — Trading Bot Configuration</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <h1>Yanagiba</h1>
+        <div class="subtitle">Trading Bot Config</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Overview</div>
+        <div class="nav-item active" data-panel="dashboard">
+          <span class="nav-icon">&#9632;</span> Dashboard
+        </div>
+
+        <div class="nav-section-label">Configuration</div>
+        <div class="nav-item" data-panel="risk">
+          <span class="nav-icon">&#9888;</span> Risk Management
+        </div>
+        <div class="nav-item" data-panel="strategy">
+          <span class="nav-icon">&#9733;</span> Strategy Engine
+        </div>
+        <div class="nav-item" data-panel="indicators">
+          <span class="nav-icon">&#8942;</span> Indicators
+        </div>
+        <div class="nav-item" data-panel="execution">
+          <span class="nav-icon">&#8644;</span> Execution
+        </div>
+        <div class="nav-item" data-panel="exchange">
+          <span class="nav-icon">&#9881;</span> Exchange & API
+        </div>
+
+        <div class="nav-section-label">Markets</div>
+        <div class="nav-item" data-panel="assets">
+          <span class="nav-icon">&#9670;</span> Assets & Pairs
+        </div>
+        <div class="nav-item" data-panel="sessions">
+          <span class="nav-icon">&#9200;</span> Session Filters
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="version">Yanagiba v1.0</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ============ DASHBOARD ============ -->
+      <div class="config-panel active" id="panel-dashboard">
+        <div class="page-header">
+          <h2>Dashboard</h2>
+          <p>Overview of your current trading configuration</p>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-box stat-blue">
+            <div class="stat-value" id="stat-leverage">{{ config.max_leverage }}x</div>
+            <div class="stat-label">Max Leverage</div>
+          </div>
+          <div class="stat-box stat-red">
+            <div class="stat-value" id="stat-risk-per-trade">{{ (config.max_risk_per_trade * 100)|round(1) }}%</div>
+            <div class="stat-label">Risk Per Trade</div>
+          </div>
+          <div class="stat-box stat-yellow">
+            <div class="stat-value" id="stat-daily-loss">{{ (config.daily_loss_limit * 100)|round(1) }}%</div>
+            <div class="stat-label">Daily Loss Limit</div>
+          </div>
+          <div class="stat-box stat-green">
+            <div class="stat-value" id="stat-min-rr">{{ config.min_risk_reward }}:1</div>
+            <div class="stat-label">Min Risk:Reward</div>
+          </div>
+          <div class="stat-box stat-purple">
+            <div class="stat-value" id="stat-exposure">{{ (config.max_portfolio_risk * 100)|round(0) }}%</div>
+            <div class="stat-label">Max Exposure</div>
+          </div>
+          <div class="stat-box stat-cyan">
+            <div class="stat-value" id="stat-confidence">{{ config.min_confidence }}</div>
+            <div class="stat-label">Min Confidence</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9888;</span> Risk Profile</div>
+            <span class="card-badge badge-yellow" id="risk-profile-badge">MODERATE</span>
+          </div>
+          <div class="risk-meter">
+            <div class="risk-meter-bar">
+              <div class="risk-meter-fill" id="risk-meter-fill" style="width: 50%; background: linear-gradient(90deg, #10b981, #f59e0b);"></div>
+            </div>
+            <div class="risk-meter-labels">
+              <span>Conservative</span>
+              <span>Moderate</span>
+              <span>Aggressive</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128200;</span> Quick Settings</div>
+          </div>
+          <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 14px;">Choose a preset risk profile to quickly configure your bot:</p>
+          <div class="preset-row">
+            <button class="preset-btn" onclick="applyPreset('conservative')">Conservative</button>
+            <button class="preset-btn active" onclick="applyPreset('moderate')">Moderate</button>
+            <button class="preset-btn" onclick="applyPreset('aggressive')">Aggressive</button>
+            <button class="preset-btn" onclick="applyPreset('degen')">Full Degen</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9881;</span> Current Mode</div>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Sandbox Mode (Paper Trading)</span>
+              <span class="desc">Trade with fake money to test strategies</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-sandbox" {{ 'checked' if config.sandbox }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ RISK MANAGEMENT ============ -->
+      <div class="config-panel" id="panel-risk">
+        <div class="page-header">
+          <h2>Risk Management</h2>
+          <p>Control how much risk the bot takes on each trade and overall</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128176;</span> Portfolio Risk Limits</div>
+            <span class="card-badge badge-red">Critical</span>
+          </div>
+
+          <div class="range-group" style="margin-bottom: 24px;">
+            <div class="range-header">
+              <label>Max Risk Per Trade</label>
+              <span class="range-value" id="val-risk-per-trade">{{ (config.max_risk_per_trade * 100)|round(1) }}%</span>
+            </div>
+            <input type="range" id="cfg-max_risk_per_trade" min="0.5" max="10" step="0.1"
+                   value="{{ config.max_risk_per_trade * 100 }}"
+                   oninput="updateRangeDisplay(this, 'val-risk-per-trade', '%')">
+            <div class="hint">Percentage of portfolio risked on each trade. Lower = safer.</div>
+          </div>
+
+          <div class="range-group" style="margin-bottom: 24px;">
+            <div class="range-header">
+              <label>Max Portfolio Exposure</label>
+              <span class="range-value" id="val-portfolio-risk">{{ (config.max_portfolio_risk * 100)|round(0) }}%</span>
+            </div>
+            <input type="range" id="cfg-max_portfolio_risk" min="10" max="100" step="5"
+                   value="{{ config.max_portfolio_risk * 100 }}"
+                   oninput="updateRangeDisplay(this, 'val-portfolio-risk', '%')">
+            <div class="hint">Maximum total margin exposure across all open positions.</div>
+          </div>
+
+          <div class="range-group" style="margin-bottom: 24px;">
+            <div class="range-header">
+              <label>Daily Loss Limit</label>
+              <span class="range-value" id="val-daily-loss">{{ (config.daily_loss_limit * 100)|round(1) }}%</span>
+            </div>
+            <input type="range" id="cfg-daily_loss_limit" min="1" max="15" step="0.5"
+                   value="{{ config.daily_loss_limit * 100 }}"
+                   oninput="updateRangeDisplay(this, 'val-daily-loss', '%')">
+            <div class="hint">Stop trading for the day after this much loss. Protects from tilt.</div>
+          </div>
+
+          <div class="range-group">
+            <div class="range-header">
+              <label>Max Leverage</label>
+              <span class="range-value" id="val-leverage">{{ config.max_leverage|round(0) }}x</span>
+            </div>
+            <input type="range" id="cfg-max_leverage" min="1" max="50" step="1"
+                   value="{{ config.max_leverage }}"
+                   oninput="updateRangeDisplay(this, 'val-leverage', 'x')">
+            <div class="hint">Maximum leverage allowed. Higher leverage = higher risk.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9878;</span> Trade Quality Filters</div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Min Risk:Reward Ratio</label>
+              <input type="number" id="cfg-min_risk_reward" step="0.1" min="0.5" max="10"
+                     value="{{ config.min_risk_reward }}">
+              <span class="hint">Only take trades with at least this R:R (e.g. 1.8 = need $1.80 reward per $1 risked)</span>
+            </div>
+            <div class="form-group">
+              <label>Min Confidence Score</label>
+              <input type="number" id="cfg-min_confidence" step="0.5" min="1" max="10"
+                     value="{{ config.min_confidence }}">
+              <span class="hint">1-10 scale. Higher = fewer but higher-quality trades</span>
+            </div>
+            <div class="form-group">
+              <label>Max Correlated Trades</label>
+              <input type="number" id="cfg-max_correlated_trades" step="1" min="1" max="10"
+                     value="{{ config.max_correlated_trades }}">
+              <span class="hint">Max same-direction trades on correlated assets (e.g. BTC+ETH+SOL)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128176;</span> Funding Rate Filters</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Max Funding Rate (Longs)</label>
+              <input type="number" id="cfg-max_funding_rate_long" step="0.0001" min="0" max="0.01"
+                     value="{{ config.max_funding_rate_long }}">
+              <span class="hint">Skip longs when funding rate exceeds this (crowded long = risky)</span>
+            </div>
+            <div class="form-group">
+              <label>Max Funding Rate (Shorts)</label>
+              <input type="number" id="cfg-max_funding_rate_short" step="0.0001" min="-0.01" max="0"
+                     value="{{ config.max_funding_rate_short }}">
+              <span class="hint">Skip shorts when funding rate is below this (crowded short = risky)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ STRATEGY ENGINE ============ -->
+      <div class="config-panel" id="panel-strategy">
+        <div class="page-header">
+          <h2>Strategy Engine</h2>
+          <p>Configure signal generation thresholds and scalping parameters</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9889;</span> Scalping Parameters</div>
+            <span class="card-badge badge-purple">High Frequency</span>
+          </div>
+
+          <div class="range-group" style="margin-bottom: 24px;">
+            <div class="range-header">
+              <label>Scalp Stop Loss</label>
+              <span class="range-value" id="val-scalp-sl">{{ (config.scalp_stop_loss * 100)|round(1) }}%</span>
+            </div>
+            <input type="range" id="cfg-scalp_stop_loss" min="0.1" max="2" step="0.1"
+                   value="{{ config.scalp_stop_loss * 100 }}"
+                   oninput="updateRangeDisplay(this, 'val-scalp-sl', '%')">
+            <div class="hint">Tighter stop = more trades survive but more stop-outs</div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Scalp TP Min</label>
+              <input type="number" id="cfg-scalp_take_profit_min" step="0.001" min="0.001" max="0.1"
+                     value="{{ config.scalp_take_profit_min }}">
+              <span class="hint">Take profit level 1 (60% of position exits here)</span>
+            </div>
+            <div class="form-group">
+              <label>Scalp TP Max</label>
+              <input type="number" id="cfg-scalp_take_profit_max" step="0.001" min="0.001" max="0.1"
+                     value="{{ config.scalp_take_profit_max }}">
+              <span class="hint">Take profit level 2 (remaining 40% exits here)</span>
+            </div>
+            <div class="form-group">
+              <label>Scalp Position Size</label>
+              <input type="number" id="cfg-scalp_position_size" step="0.01" min="0.01" max="1.0"
+                     value="{{ config.scalp_position_size }}">
+              <span class="hint">Fraction of portfolio per scalp trade</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128202;</span> RSI Thresholds</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>RSI Long Threshold</label>
+              <input type="number" id="cfg-rsi_long_threshold" step="0.5" min="30" max="70"
+                     value="{{ config.rsi_long_threshold }}">
+              <span class="hint">RSI above this = bullish signal (default: 53)</span>
+            </div>
+            <div class="form-group">
+              <label>RSI Short Threshold</label>
+              <input type="number" id="cfg-rsi_short_threshold" step="0.5" min="30" max="70"
+                     value="{{ config.rsi_short_threshold }}">
+              <span class="hint">RSI below this = bearish signal (default: 47)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#127919;</span> Scalp Timeframes</div>
+          </div>
+          <div class="form-group">
+            <label>Active Scalping Timeframes</label>
+            <div class="tag-list" id="scalp-timeframes-tags">
+              {% for tf in config.scalp_timeframes %}
+              <span class="tag">{{ tf }} <span class="remove-tag" onclick="removeTag('scalp_timeframes', '{{ tf }}')">&times;</span></span>
+              {% endfor %}
+            </div>
+            <div class="add-tag-input">
+              <input type="text" id="add-scalp-tf" placeholder="e.g. 3m">
+              <button class="btn btn-sm btn-outline" onclick="addTag('scalp_timeframes', 'add-scalp-tf')">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ INDICATORS ============ -->
+      <div class="config-panel" id="panel-indicators">
+        <div class="page-header">
+          <h2>Technical Indicators</h2>
+          <p>Fine-tune the indicator parameters used for signal generation</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128200;</span> EMA (Exponential Moving Average)</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Fast EMA Period</label>
+              <input type="number" id="cfg-ema_fast" step="1" min="3" max="50" value="{{ config.ema_fast }}">
+              <span class="hint">Quick-moving average for entry signals (default: 9)</span>
+            </div>
+            <div class="form-group">
+              <label>Mid EMA Period</label>
+              <input type="number" id="cfg-ema_mid" step="1" min="10" max="100" value="{{ config.ema_mid }}">
+              <span class="hint">Medium trend filter (default: 21)</span>
+            </div>
+            <div class="form-group">
+              <label>Slow EMA Period</label>
+              <input type="number" id="cfg-ema_slow" step="1" min="20" max="200" value="{{ config.ema_slow }}">
+              <span class="hint">Overall trend direction (default: 55)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128202;</span> RSI (Relative Strength Index)</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>RSI Period</label>
+              <input type="number" id="cfg-rsi_period" step="1" min="5" max="50" value="{{ config.rsi_period }}">
+              <span class="hint">Lookback period for RSI calculation (default: 14)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128200;</span> MACD</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>MACD Fast</label>
+              <input type="number" id="cfg-macd_fast" step="1" min="5" max="30" value="{{ config.macd_fast }}">
+              <span class="hint">Fast EMA for MACD (default: 12)</span>
+            </div>
+            <div class="form-group">
+              <label>MACD Slow</label>
+              <input type="number" id="cfg-macd_slow" step="1" min="10" max="50" value="{{ config.macd_slow }}">
+              <span class="hint">Slow EMA for MACD (default: 26)</span>
+            </div>
+            <div class="form-group">
+              <label>MACD Signal</label>
+              <input type="number" id="cfg-macd_signal" step="1" min="3" max="20" value="{{ config.macd_signal }}">
+              <span class="hint">Signal line smoothing (default: 9)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128202;</span> Bollinger Bands</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>BB Period</label>
+              <input type="number" id="cfg-bb_period" step="1" min="10" max="50" value="{{ config.bb_period }}">
+              <span class="hint">SMA period for middle band (default: 20)</span>
+            </div>
+            <div class="form-group">
+              <label>BB Std Dev</label>
+              <input type="number" id="cfg-bb_std" step="0.1" min="1" max="4" value="{{ config.bb_std }}">
+              <span class="hint">Standard deviations for upper/lower bands (default: 2.0)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ EXECUTION ============ -->
+      <div class="config-panel" id="panel-execution">
+        <div class="page-header">
+          <h2>Execution Settings</h2>
+          <p>Configure order types, trailing stops, and fee optimization</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128176;</span> Fee Optimization</div>
+            <span class="card-badge badge-green">Saves Money</span>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Use Limit Entry Orders</span>
+              <span class="desc">Enter positions with limit orders to pay maker fee (0.02%) instead of taker (0.05%)</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-use_limit_entry" {{ 'checked' if config.use_limit_entry }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label>Maker Fee</label>
+              <input type="number" id="cfg-maker_fee" step="0.0001" min="0" max="0.01"
+                     value="{{ config.maker_fee }}">
+              <span class="hint">Fee for limit orders (default: 0.02%)</span>
+            </div>
+            <div class="form-group">
+              <label>Taker Fee</label>
+              <input type="number" id="cfg-taker_fee" step="0.0001" min="0" max="0.01"
+                     value="{{ config.taker_fee }}">
+              <span class="hint">Fee for market orders (default: 0.05%)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128200;</span> Trailing Stop</div>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Enable Trailing Stop</span>
+              <span class="desc">Automatically trail stop loss as price moves in your favor</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-use_trailing_stop" {{ 'checked' if config.use_trailing_stop }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label>Trailing Stop Activation</label>
+              <input type="number" id="cfg-trailing_stop_activation" step="0.001" min="0.001" max="0.05"
+                     value="{{ config.trailing_stop_activation }}">
+              <span class="hint">Activate trailing stop after this much profit (default: 0.8%)</span>
+            </div>
+            <div class="form-group">
+              <label>Trailing Stop Callback</label>
+              <input type="number" id="cfg-trailing_stop_callback" step="0.001" min="0.001" max="0.02"
+                     value="{{ config.trailing_stop_callback }}">
+              <span class="hint">Trail distance from peak (default: 0.3%)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ EXCHANGE & API ============ -->
+      <div class="config-panel" id="panel-exchange">
+        <div class="page-header">
+          <h2>Exchange & API</h2>
+          <p>Configure your exchange connection and API credentials</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9881;</span> Exchange Settings</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Exchange</label>
+              <select id="cfg-exchange">
+                <option value="binance" {{ 'selected' if config.exchange == 'binance' }}>Binance</option>
+                <option value="bybit" {{ 'selected' if config.exchange == 'bybit' }}>Bybit</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Market Type</label>
+              <select id="cfg-market_type">
+                <option value="future" {{ 'selected' if config.market_type == 'future' }}>Futures</option>
+                <option value="spot" {{ 'selected' if config.market_type == 'spot' }}>Spot</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128274;</span> API Credentials</div>
+            <span class="card-badge badge-red">Sensitive</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="password" id="cfg-api_key" value="{{ config.api_key }}" placeholder="Enter your API key">
+            </div>
+            <div class="form-group">
+              <label>API Secret</label>
+              <input type="password" id="cfg-api_secret" value="{{ config.api_secret }}" placeholder="Enter your API secret">
+            </div>
+          </div>
+          <p class="hint" style="margin-top: 12px;">Credentials are stored locally in ~/.yanagiba/config.json. Never share these.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128226;</span> Mode</div>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Sandbox / Paper Trading</span>
+              <span class="desc">When enabled, trades are simulated with no real money at risk</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-sandbox-exchange" {{ 'checked' if config.sandbox }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ASSETS & PAIRS ============ -->
+      <div class="config-panel" id="panel-assets">
+        <div class="page-header">
+          <h2>Assets & Trading Pairs</h2>
+          <p>Manage which assets the bot trades and sector filters</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9670;</span> Core Trading Pairs</div>
+            <span class="card-badge badge-blue">{{ config.assets|length }} pairs</span>
+          </div>
+          <div class="tag-list" id="assets-tags">
+            {% for asset in config.assets %}
+            <span class="tag">{{ asset }} <span class="remove-tag" onclick="removeTag('assets', '{{ asset }}')">&times;</span></span>
+            {% endfor %}
+          </div>
+          <div class="add-tag-input">
+            <input type="text" id="add-asset" placeholder="e.g. PEPE/USDT">
+            <button class="btn btn-sm btn-outline" onclick="addTag('assets', 'add-asset')">Add Pair</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#127918;</span> Gaming Sector Tokens</div>
+            <span class="card-badge badge-purple">{{ config.gaming_tokens|length }} tokens</span>
+          </div>
+          <div class="toggle-group" style="margin-bottom: 16px;">
+            <div class="toggle-label">
+              <span class="name">Enable Gaming Sector Trading</span>
+              <span class="desc">Trade gaming/metaverse tokens (GALA, IMX, AXS, etc.)</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-enable_gaming_sector" {{ 'checked' if config.enable_gaming_sector }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="tag-list" id="gaming-tokens-tags">
+            {% for token in config.gaming_tokens %}
+            <span class="tag">{{ token }} <span class="remove-tag" onclick="removeTag('gaming_tokens', '{{ token }}')">&times;</span></span>
+            {% endfor %}
+          </div>
+          <div class="add-tag-input">
+            <input type="text" id="add-gaming-token" placeholder="e.g. PIXELS/USDT">
+            <button class="btn btn-sm btn-outline" onclick="addTag('gaming_tokens', 'add-gaming-token')">Add Token</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128202;</span> Analysis Timeframes</div>
+          </div>
+          <div class="tag-list" id="timeframes-tags">
+            {% for tf in config.timeframes %}
+            <span class="tag">{{ tf }} <span class="remove-tag" onclick="removeTag('timeframes', '{{ tf }}')">&times;</span></span>
+            {% endfor %}
+          </div>
+          <div class="add-tag-input">
+            <input type="text" id="add-timeframe" placeholder="e.g. 2h">
+            <button class="btn btn-sm btn-outline" onclick="addTag('timeframes', 'add-timeframe')">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SESSION FILTERS ============ -->
+      <div class="config-panel" id="panel-sessions">
+        <div class="page-header">
+          <h2>Session & Timing Filters</h2>
+          <p>Control when the bot trades based on time and market conditions</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9200;</span> Trading Sessions</div>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Use Session Filter</span>
+              <span class="desc">Only trade during high-volume hours (recommended)</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-use_session_filter" {{ 'checked' if config.use_session_filter }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group full-width" style="margin-top: 16px;">
+            <label>Active Trading Hours (UTC)</label>
+            <div class="tag-list" id="session-hours-tags">
+              {% for session in config.active_hours_utc %}
+              <span class="tag">{{ session[0] }}:00 - {{ session[1] }}:00 UTC</span>
+              {% endfor %}
+            </div>
+            <span class="hint">Sessions: Asia (0-4 UTC), EU (8-11 UTC), US+EU overlap (13-21 UTC)</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128197;</span> Weekend Filter</div>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Reduce Weekend Risk</span>
+              <span class="desc">Scale down position sizes on Saturday & Sunday (thin liquidity)</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-use_weekend_filter" {{ 'checked' if config.use_weekend_filter }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="range-group" style="margin-top: 16px;">
+            <div class="range-header">
+              <label>Weekend Position Scale</label>
+              <span class="range-value" id="val-weekend-scale">{{ (config.weekend_position_scale * 100)|round(0) }}%</span>
+            </div>
+            <input type="range" id="cfg-weekend_position_scale" min="10" max="100" step="5"
+                   value="{{ config.weekend_position_scale * 100 }}"
+                   oninput="updateRangeDisplay(this, 'val-weekend-scale', '%')">
+            <div class="hint">50% = half-size positions on weekends</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Action Bar -->
+  <div class="action-bar">
+    <div class="left-actions">
+      <button class="btn btn-danger" onclick="resetConfig()">Reset to Defaults</button>
+      <button class="btn btn-outline" onclick="exportConfig()">Export Config</button>
+      <label class="btn btn-outline" style="cursor: pointer;">
+        Import Config
+        <input type="file" accept=".json" onchange="importConfig(event)" style="display: none;">
+      </label>
+    </div>
+    <div class="right-actions">
+      <span class="save-status" id="save-status"></span>
+      <button class="btn btn-success" onclick="saveConfig()">Save Configuration</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
