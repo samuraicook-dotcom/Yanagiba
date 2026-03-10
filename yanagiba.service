@@ -16,6 +16,9 @@ StartLimitBurst=10
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
+# Watchdog: restart if bot hangs for 10 minutes
+WatchdogSec=600
+
 # Logging
 StandardOutput=journal
 StandardError=journal

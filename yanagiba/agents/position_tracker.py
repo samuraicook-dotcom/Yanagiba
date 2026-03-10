@@ -9,11 +9,15 @@ Solves the critical problem of "fire and forget" order placement:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+POSITIONS_FILE = Path.home() / "Yanagiba" / "journal" / "open_positions.json"
 
 
 @dataclass
@@ -54,6 +58,28 @@ class PositionTracker:
         self.positions: list[TrackedPosition] = []
         self.closed_positions: list[TrackedPosition] = []
         self.total_realized_pnl: float = 0.0
+        self._load_positions()
+
+    def _load_positions(self):
+        """Restore open positions from disk on startup."""
+        if POSITIONS_FILE.exists():
+            try:
+                data = json.loads(POSITIONS_FILE.read_text())
+                for d in data:
+                    self.positions.append(TrackedPosition(**d))
+                if self.positions:
+                    logger.info(f"Restored {len(self.positions)} open positions from disk")
+            except Exception as e:
+                logger.warning(f"Could not restore positions: {e}")
+
+    def _save_positions(self):
+        """Persist open positions to disk for crash recovery."""
+        try:
+            POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            data = [p.to_dict() for p in self.positions]
+            POSITIONS_FILE.write_text(json.dumps(data, indent=2))
+        except Exception as e:
+            logger.warning(f"Could not save positions: {e}")
 
     def add_position(
         self,
@@ -78,6 +104,7 @@ class PositionTracker:
             opened_at=datetime.utcnow().isoformat(),
         )
         self.positions.append(pos)
+        self._save_positions()
         logger.info(f"TRACKING: {side.upper()} {quantity} {symbol} @ {entry_price}")
         return pos
 
@@ -141,6 +168,8 @@ class PositionTracker:
         except Exception as e:
             logger.warning(f"Position sync failed (will retry): {e}")
 
+        if events:
+            self._save_positions()
         return events
 
     async def simulate_sandbox_fills(
@@ -220,6 +249,8 @@ class PositionTracker:
             except Exception as e:
                 logger.debug(f"Sandbox check {pos.symbol}: {e}")
 
+        if events:
+            self._save_positions()
         return events
 
     def _estimate_pnl(self, pos: TrackedPosition, open_symbols: dict) -> float:

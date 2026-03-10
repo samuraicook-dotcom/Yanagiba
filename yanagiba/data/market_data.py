@@ -13,6 +13,27 @@ import pandas as pd
 logger = logging.getLogger("yanagiba")
 
 
+class ExchangeErrorKind:
+    AUTH = "auth"           # Bad API key, revoked, IP whitelist
+    RATE_LIMIT = "rate"     # Rate limited, temporary
+    NETWORK = "network"     # Timeout, DNS, connection reset
+    EXCHANGE = "exchange"   # Exchange-side error (maintenance, etc.)
+    OTHER = "other"
+
+
+def classify_exchange_error(exc: Exception) -> str:
+    """Classify a ccxt exception as fatal (auth) or transient (network/rate)."""
+    if isinstance(exc, ccxt.AuthenticationError):
+        return ExchangeErrorKind.AUTH
+    if isinstance(exc, (ccxt.RateLimitExceeded, ccxt.DDoSProtection)):
+        return ExchangeErrorKind.RATE_LIMIT
+    if isinstance(exc, (ccxt.NetworkError, ccxt.RequestTimeout)):
+        return ExchangeErrorKind.NETWORK
+    if isinstance(exc, ccxt.ExchangeNotAvailable):
+        return ExchangeErrorKind.EXCHANGE
+    return ExchangeErrorKind.OTHER
+
+
 class MarketDataProvider:
     """Fetches market data from exchanges via ccxt."""
 

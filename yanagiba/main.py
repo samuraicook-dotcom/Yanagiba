@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging.handlers
 import signal
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -34,9 +36,22 @@ from yanagiba.data.trade_journal import TradeJournal
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import PortfolioState
 
+PORTFOLIO_FILE = Path.home() / "Yanagiba" / "journal" / "portfolio_state.json"
+
+LOG_DIR = Path.home() / "Yanagiba" / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.handlers.RotatingFileHandler(
+            LOG_DIR / "yanagiba.log",
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+        ),
+    ],
 )
 logger = logging.getLogger("yanagiba")
 console = Console()
@@ -60,11 +75,47 @@ class TradingBot:
         self.journal = TradeJournal()
         self.cme_gap = CMEGapTracker()
         self.telegram = telegram or TelegramNotifier("", "")
-        self.portfolio = PortfolioState(total_value=49.0, cash=49.0)
+        self.portfolio = self._load_portfolio()
         self._running = False
+
+    def _load_portfolio(self) -> PortfolioState:
+        """Restore portfolio state from disk, or use defaults."""
+        if PORTFOLIO_FILE.exists():
+            try:
+                data = json.loads(PORTFOLIO_FILE.read_text())
+                logger.info(f"Restored portfolio: ${data['total_value']:.2f}")
+                return PortfolioState(
+                    total_value=data.get("total_value", 49.0),
+                    cash=data.get("cash", 49.0),
+                    total_exposure_pct=data.get("total_exposure_pct", 0.0),
+                    daily_pnl=data.get("daily_pnl", 0.0),
+                )
+            except Exception as e:
+                logger.warning(f"Could not restore portfolio: {e}")
+        return PortfolioState(total_value=49.0, cash=49.0)
+
+    def _save_portfolio(self):
+        """Persist portfolio state for crash recovery."""
+        try:
+            PORTFOLIO_FILE.parent.mkdir(parents=True, exist_ok=True)
+            PORTFOLIO_FILE.write_text(json.dumps({
+                "total_value": self.portfolio.total_value,
+                "cash": self.portfolio.cash,
+                "total_exposure_pct": self.portfolio.total_exposure_pct,
+                "daily_pnl": self.portfolio.daily_pnl,
+            }, indent=2))
+        except Exception as e:
+            logger.warning(f"Could not save portfolio: {e}")
 
     async def run_cycle(self) -> list[dict]:
         """Run one full analysis + trading cycle across all assets."""
+        # Notify systemd watchdog (if running as service)
+        try:
+            import sdnotify
+            sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+        except ImportError:
+            pass
+
         # Ensure markets are loaded (needed for futures symbol resolution)
         await self.data_provider.load_markets()
 
@@ -149,6 +200,7 @@ class TradingBot:
                 cycle_results.append(result)
 
         self._print_portfolio_summary()
+        self._save_portfolio()
         await self.telegram.flush_rejections()
         await self.telegram.notify_portfolio({
             "total_value": self.portfolio.total_value,
@@ -374,13 +426,66 @@ class TradingBot:
             table.add_row("Best Strategy", perf["best_strategy"])
         console.print(table)
 
+    async def preflight_check(self) -> bool:
+        """Validate exchange connectivity and API credentials before trading.
+
+        Returns True if healthy, False if fatal (bad credentials).
+        Transient network errors are tolerated — only auth failures are fatal.
+        """
+        from yanagiba.data.market_data import ExchangeErrorKind, classify_exchange_error
+
+        console.print("[cyan]Running preflight checks...[/]")
+
+        # 1. Test connectivity: load markets
+        try:
+            await self.data_provider.load_markets()
+            console.print("[green]  Exchange connectivity: OK[/]")
+        except Exception as e:
+            kind = classify_exchange_error(e)
+            if kind == ExchangeErrorKind.AUTH:
+                console.print(f"[bold red]  FATAL: API key rejected by {self.config.exchange}[/]")
+                console.print(f"[red]  Error: {e}[/]")
+                console.print("[yellow]  Fix BINANCE_API_KEY and BINANCE_API_SECRET in .env[/]")
+                await self.telegram.send(
+                    "🚨 *FATAL: API key rejected.* Bot cannot start.\n"
+                    "Fix your API keys in .env and restart."
+                )
+                return False
+            console.print(f"[yellow]  Exchange connectivity failed (will retry in loop): {e}[/]")
+
+        # 2. Test authenticated endpoint (live mode only)
+        if self.config.api_key and not self.config.sandbox:
+            try:
+                await self.data_provider.exchange.fetch_balance()
+                console.print("[green]  API authentication: OK[/]")
+            except Exception as e:
+                kind = classify_exchange_error(e)
+                if kind == ExchangeErrorKind.AUTH:
+                    console.print(
+                        "[bold red]  FATAL: API key invalid, expired,"
+                        " or IP not whitelisted[/]"
+                    )
+                    console.print(f"[red]  {e}[/]")
+                    await self.telegram.send(
+                        "🚨 *FATAL: API key invalid.* Bot stopped.\n"
+                        "Check key permissions and IP whitelist."
+                    )
+                    return False
+                console.print(f"[yellow]  Balance check failed (non-fatal): {e}[/]")
+
+        console.print("[green]  Preflight checks passed[/]")
+        return True
+
     async def run_loop(self, interval_seconds: int = 180):
         """Run continuous trading loop with crash resilience.
 
         Individual cycle failures are caught and logged — the bot stays alive.
         After repeated consecutive failures it backs off to avoid spam, then
         resets on the next successful cycle.
+        Auth errors (bad API key) stop the loop immediately.
         """
+        from yanagiba.data.market_data import ExchangeErrorKind, classify_exchange_error
+
         self._running = True
         consecutive_failures = 0
         max_backoff = 300  # 5 min cap on failure backoff
@@ -396,6 +501,11 @@ class TradingBot:
             list(self.config.assets), interval_seconds,
         )
 
+        # Preflight: validate API keys before entering trade loop
+        if not await self.preflight_check():
+            console.print("[bold red]Preflight failed — exiting[/]")
+            return
+
         try:
             while self._running:
                 try:
@@ -407,6 +517,15 @@ class TradingBot:
                 except asyncio.CancelledError:
                     raise  # let cancellation propagate
                 except Exception as e:
+                    kind = classify_exchange_error(e)
+                    if kind == ExchangeErrorKind.AUTH:
+                        logger.error(f"FATAL AUTH ERROR: {e} — stopping bot")
+                        await self.telegram.send(
+                            f"🚨 *FATAL: Auth error.* Bot stopped.\n"
+                            f"Fix API keys and restart.\n`{e}`"
+                        )
+                        break  # exit loop, fall through to shutdown
+
                     consecutive_failures += 1
                     backoff = min(interval_seconds * consecutive_failures, max_backoff)
                     logger.error(
@@ -434,7 +553,6 @@ class TradingBot:
 
 def main():
     import os
-    from pathlib import Path
 
     from dotenv import load_dotenv
 

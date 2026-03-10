@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -27,26 +28,36 @@ class TelegramNotifier:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    async def send(self, message: str) -> bool:
+    async def send(self, message: str, retries: int = 1) -> bool:
         if not self.enabled:
             return False
-        try:
-            session = await self._get_session()
-            async with session.post(
-                f"{self.base_url}/sendMessage",
-                json={
-                    "chat_id": self.chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown",
-                },
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(f"Telegram send failed: {resp.status}")
-                    return False
-                return True
-        except Exception as e:
-            logger.warning(f"Telegram error: {e}")
-            return False
+        for attempt in range(retries + 1):
+            try:
+                session = await self._get_session()
+                async with session.post(
+                    f"{self.base_url}/sendMessage",
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": message[:4096],
+                        "parse_mode": "Markdown",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        return True
+                    body = await resp.text()
+                    logger.warning(f"Telegram send failed (HTTP {resp.status}): {body[:200]}")
+                    if resp.status == 401:
+                        logger.error("Telegram bot token is invalid — disabling notifications")
+                        self.enabled = False
+                        return False
+            except asyncio.TimeoutError:
+                logger.warning(f"Telegram timeout (attempt {attempt + 1})")
+            except Exception as e:
+                logger.warning(f"Telegram error (attempt {attempt + 1}): {e}")
+            if attempt < retries:
+                await asyncio.sleep(2)
+        return False
 
     async def notify_cycle_start(self, timestamp: str, assets: list[str]):
         await self.send(
