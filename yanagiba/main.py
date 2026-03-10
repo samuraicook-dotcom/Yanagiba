@@ -438,10 +438,20 @@ def main():
 
     from dotenv import load_dotenv
 
-    # Load .env from multiple locations (project dir, home dir, script dir)
+    # Load .env from multiple locations (project dir, home dir, backup, script dir)
     project_root = Path(__file__).resolve().parent.parent
-    load_dotenv(project_root / ".env")
+    backup_dir = Path.home() / ".yanagiba"
+    backup_env = backup_dir / ".env.backup"
+    primary_env = project_root / ".env"
+
+    load_dotenv(primary_env)
     load_dotenv(Path.home() / "Yanagiba" / ".env")
+    # Fall back to backup if primary is missing
+    if not primary_env.exists() and backup_env.exists():
+        console.print("[yellow]Primary .env missing — restoring from backup[/]")
+        import shutil
+        shutil.copy2(backup_env, primary_env)
+        load_dotenv(primary_env)
     load_dotenv()  # Also check CWD
 
     config = TradingConfig()
@@ -449,6 +459,13 @@ def main():
     # API keys: check CLI args first, then env vars
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
     config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
+
+    # Back up .env so power outages don't wipe credentials
+    if config.api_key and primary_env.exists():
+        import shutil
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(primary_env, backup_env)
+        os.chmod(backup_env, 0o600)  # restrict permissions
 
     # Allow passing keys via CLI: --api-key KEY --api-secret SECRET
     if "--api-key" in sys.argv:
