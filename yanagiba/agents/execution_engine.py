@@ -312,6 +312,49 @@ class ExecutionEngine:
             return round(entry * (1 + activation_pct), 6)
         return round(entry * (1 - activation_pct), 6)
 
+    async def cancel_stale_orders(self, exchange, max_age_seconds: int = 300) -> int:
+        """Cancel unfilled limit orders older than max_age_seconds.
+
+        Returns the number of orders cancelled.
+        """
+        if not exchange or self.config.sandbox:
+            # In sandbox mode, just clear pending_orders list
+            cleared = len(self.pending_orders)
+            self.pending_orders.clear()
+            return cleared
+
+        cancelled = 0
+        try:
+            open_orders = await exchange.fetch_open_orders()
+            now = exchange.milliseconds()
+            for order in open_orders:
+                created = order.get("timestamp", now)
+                age_s = (now - created) / 1000
+                if age_s > max_age_seconds and order.get("status") == "open":
+                    try:
+                        symbol = order.get("symbol", "")
+                        order_id = order.get("id", "")
+                        await exchange.cancel_order(order_id, symbol)
+                        cancelled += 1
+                        logger.info(
+                            f"Cancelled stale order {order_id} ({symbol}, "
+                            f"age={age_s:.0f}s)"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel order {order.get('id')}: {e}")
+        except Exception as e:
+            logger.warning(f"Could not fetch open orders: {e}")
+
+        self.pending_orders.clear()
+        return cancelled
+
+    def clear_cycle_data(self):
+        """Reset per-cycle order lists to prevent unbounded growth."""
+        self.pending_orders.clear()
+        # Keep only the last 50 executed orders for summary
+        if len(self.executed_orders) > 50:
+            self.executed_orders = self.executed_orders[-50:]
+
     def get_execution_summary(self) -> dict:
         return {
             "pending_orders": len(self.pending_orders),

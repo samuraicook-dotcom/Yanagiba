@@ -134,8 +134,14 @@ class TradingBot:
                 except Exception as e:
                     logger.debug(f"CME gap check failed: {e}")
 
-        # Reset correlation guard for new cycle
+        # Cancel stale unfilled orders from previous cycles
+        stale = await self.execution.cancel_stale_orders(self.data_provider.exchange)
+        if stale:
+            logger.info(f"Cleared {stale} stale orders")
+
+        # Reset correlation guard and execution lists for new cycle
         self.risk.clear_cycle_trades()
+        self.execution.clear_cycle_data()
 
         for symbol in all_assets:
             result = await self._process_asset(symbol, sentiment_report, timestamp)
@@ -154,6 +160,12 @@ class TradingBot:
 
     async def _process_asset(self, symbol: str, sentiment_report, timestamp: str) -> dict | None:
         console.rule(f"[bold yellow]{symbol}")
+
+        # Skip assets that already have an open position
+        open_symbols = {p.symbol for p in self.position_tracker.positions}
+        if symbol in open_symbols:
+            logger.info(f"Skipping {symbol} — already has open position")
+            return None
 
         try:
             # 1. MARKET ANALYST: Gather data and analyze
