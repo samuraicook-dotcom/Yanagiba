@@ -79,7 +79,7 @@ class TradingConfig:
     # Trading session filter (UTC hours — trade when volume is highest)
     # Best BTC hours: US+EU overlap (13:00-17:00 UTC), Asia open (00:00-03:00)
     active_hours_utc: list[tuple[int, int]] = field(
-        default_factory=lambda: [(0, 4), (8, 11), (13, 21)]
+        default_factory=lambda: [(0, 4), (8, 21)]
     )
     use_session_filter: bool = True  # skip low-volume hours
     weekend_position_scale: float = 0.5  # halve position size on weekends

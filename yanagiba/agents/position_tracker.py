@@ -129,8 +129,8 @@ class PositionTracker:
                 check_sym = futures_sym if futures_sym in open_symbols else pos.symbol
 
                 if check_sym not in open_symbols:
-                    # Position was closed (SL or TP hit)
-                    pnl = self._estimate_pnl(pos, open_symbols)
+                    # Position was closed — try to get real PnL from exchange
+                    pnl = await self._fetch_real_pnl(exchange, pos)
                     pos.status = "closed"
                     pos.realized_pnl = pnl
                     self.total_realized_pnl += pnl
@@ -147,16 +147,17 @@ class PositionTracker:
                     )
                     portfolio.total_exposure_pct = max(0, portfolio.total_exposure_pct - margin_pct)
 
+                    close_type = "take_profit" if pnl > 0 else "stop_loss"
                     event = {
-                        "type": "position_closed",
+                        "type": f"position_closed_{close_type}",
                         "symbol": pos.symbol,
                         "pnl": round(pnl, 2),
                         "portfolio_value": round(portfolio.total_value, 2),
                     }
                     events.append(event)
                     logger.info(
-                        f"POSITION CLOSED: {pos.symbol} PnL=${pnl:+.2f} | "
-                        f"Portfolio=${portfolio.total_value:.2f}"
+                        f"POSITION CLOSED ({close_type}): {pos.symbol} "
+                        f"PnL=${pnl:+.2f} | Portfolio=${portfolio.total_value:.2f}"
                     )
                 else:
                     # Position still open — update unrealized PnL
@@ -171,6 +172,35 @@ class PositionTracker:
         if events:
             self._save_positions()
         return events
+
+    async def _fetch_real_pnl(self, exchange, pos: TrackedPosition) -> float:
+        """Fetch actual realized PnL from exchange trade history.
+
+        Falls back to price-based estimation if the exchange API fails.
+        """
+        try:
+            # Fetch recent closed orders / trades for this symbol
+            trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
+            # Find trades after position was opened
+            entry_time = pos.opened_at or ""
+            relevant_pnl = 0.0
+            found_close = False
+            for t in reversed(trades):
+                info = t.get("info", {})
+                realized = float(info.get("realizedPnl", 0))
+                if realized != 0:
+                    relevant_pnl += realized
+                    found_close = True
+            if found_close:
+                logger.info(
+                    f"Exchange PnL for {pos.symbol}: ${relevant_pnl:+.4f}"
+                )
+                return relevant_pnl
+        except Exception as e:
+            logger.debug(f"Could not fetch trade history for {pos.symbol}: {e}")
+
+        # Fallback: estimate from current price vs entry
+        return await self._estimate_pnl_from_price(exchange, pos)
 
     async def simulate_sandbox_fills(
         self, exchange, portfolio,
@@ -253,24 +283,56 @@ class PositionTracker:
             self._save_positions()
         return events
 
-    def _estimate_pnl(self, pos: TrackedPosition, open_symbols: dict) -> float:
-        """Estimate PnL for a closed position based on SL/TP levels.
+    async def _estimate_pnl_from_price(
+        self, exchange, pos: TrackedPosition,
+    ) -> float:
+        """Estimate PnL by fetching last price and comparing to entry/SL/TP.
 
-        Deducts round-trip fees (entry taker + exit taker) from the estimate.
-        At 20x leverage, fees are ~1.6% of margin per round-trip.
+        Used as fallback when exchange trade history is unavailable.
         """
-        sl_distance = abs(pos.entry_price - pos.stop_loss) / pos.entry_price
+        try:
+            ticker = await exchange.fetch_ticker(pos.symbol)
+            last_price = ticker.get("last", 0)
+        except Exception:
+            last_price = 0
 
-        # Default: assume SL hit (conservative)
-        leverage = 20 if pos.margin_usd < 10 else 10
-        estimated_loss = pos.margin_usd * sl_distance * leverage
-
-        # Deduct round-trip fees: maker entry (0.02%) + taker exit (0.05%)
         notional = pos.entry_price * pos.quantity
         fee_cost = notional * (0.0002 + 0.0005)  # maker + taker
-        estimated_loss += fee_cost
+        is_long = pos.side == "buy"
 
-        return -min(estimated_loss, pos.margin_usd * 0.95)
+        # If we have a last price, determine if TP or SL was more likely hit
+        if last_price > 0 and pos.take_profits:
+            tp1 = pos.take_profits[0]
+            if is_long:
+                # Price above TP → likely hit TP
+                if last_price >= tp1:
+                    pnl = (tp1 - pos.entry_price) * pos.quantity - fee_cost
+                    return pnl
+                # Price below SL → likely hit SL
+                elif last_price <= pos.stop_loss:
+                    pnl = (pos.stop_loss - pos.entry_price) * pos.quantity - fee_cost
+                    return pnl
+            else:
+                # Short: price below TP → likely hit TP
+                if last_price <= tp1:
+                    pnl = (pos.entry_price - tp1) * pos.quantity - fee_cost
+                    return pnl
+                # Price above SL → likely hit SL
+                elif last_price >= pos.stop_loss:
+                    pnl = (pos.entry_price - pos.stop_loss) * pos.quantity - fee_cost
+                    return pnl
+
+            # Price between SL and TP — use actual price difference
+            if is_long:
+                pnl = (last_price - pos.entry_price) * pos.quantity - fee_cost
+            else:
+                pnl = (pos.entry_price - last_price) * pos.quantity - fee_cost
+            return pnl
+
+        # Last resort: assume SL hit (conservative)
+        sl_distance = abs(pos.entry_price - pos.stop_loss)
+        pnl = -(sl_distance * pos.quantity + fee_cost)
+        return max(pnl, -(pos.margin_usd * 0.95))
 
     @property
     def open_count(self) -> int:
