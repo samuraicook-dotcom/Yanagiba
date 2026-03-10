@@ -136,6 +136,12 @@ class TradingBot:
         for ev in events:
             logger.info(f"POSITION EVENT: {ev}")
             await self.telegram.notify_position_closed(ev)
+            # Record the PnL in trade journal
+            self.journal.close_trade(
+                symbol=ev.get("symbol", "?"),
+                pnl=ev.get("pnl", 0.0),
+                close_type=ev.get("type", "closed"),
+            )
         if events:
             self.journal.update_drawdown(self.portfolio.total_value)
 

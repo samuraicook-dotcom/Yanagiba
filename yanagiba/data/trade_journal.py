@@ -112,6 +112,36 @@ class TradeJournal:
 
             self._save_stats()
 
+    def close_trade(
+        self,
+        symbol: str,
+        pnl: float,
+        close_type: str = "closed",
+    ):
+        """Record a trade closure with PnL. Updates win/loss stats."""
+        record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "symbol": symbol,
+            "status": "closed",
+            "close_type": close_type,
+            "pnl": pnl,
+        }
+
+        # Append to JSONL
+        try:
+            with open(self.trades_file, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning(f"Could not write trade close: {e}")
+
+        # Update win/loss stats (don't increment total_trades — already counted at entry)
+        if pnl > 0:
+            self._stats["wins"] += 1
+        elif pnl < 0:
+            self._stats["losses"] += 1
+        self._stats["total_pnl"] += pnl
+        self._save_stats()
+
     def update_drawdown(self, portfolio_value: float):
         """Track max drawdown for risk monitoring."""
         if portfolio_value > self._stats["peak_value"]:
