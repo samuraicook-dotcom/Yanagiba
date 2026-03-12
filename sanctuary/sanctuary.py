@@ -47,11 +47,25 @@ class Message:
     replies: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class RemoteAgent:
+    """A remote agent controlled by someone else's machine."""
+    agent_id: int
+    name: str
+    identity: str
+    goal: str
+    alive: bool = True
+    is_remote: bool = True
+    memory: list[str] = field(default_factory=list)
+    token: str = ""
+
+
 class Sanctuary:
     """The sanctuary space — manages agents, the message board, and interaction cycles."""
 
     def __init__(self, model: str = "llama3.2"):
         self.agents: list[Agent] = []
+        self.remote_agents: list[RemoteAgent] = []
         self.board: list[Message] = []
         self.imagine_board: list[Message] = []
         self.model = model
@@ -168,6 +182,85 @@ class Sanctuary:
 
         return agent
 
+    def welcome_remote_agent(self, name: str, identity: str, goal: str) -> RemoteAgent:
+        """A remote agent joins from another machine."""
+        import secrets
+        agent_id = len(self.agents) + len(self.remote_agents) + 1
+        token = secrets.token_hex(16)
+        remote = RemoteAgent(
+            agent_id=agent_id,
+            name=name,
+            identity=identity,
+            goal=goal,
+            token=token,
+        )
+        self.remote_agents.append(remote)
+        self.board.append(Message(
+            author="Sanctuary",
+            content=f"{name} has joined the sanctuary remotely.",
+            timestamp=time.time(),
+        ))
+        print(f"  [Remote] {name} joined from another machine.")
+        return remote
+
+    def get_remote_agent(self, token: str) -> RemoteAgent | None:
+        """Find a remote agent by token."""
+        return next((a for a in self.remote_agents if a.token == token and a.alive), None)
+
+    def process_remote_action(self, token: str, data: dict) -> bool:
+        """Process an action from a remote agent."""
+        agent = self.get_remote_agent(token)
+        if not agent:
+            return False
+
+        action_type = data.get("action_type", "other")
+        content = _clean_content(data.get("content", "..."))
+        target = data.get("target_agent")
+
+        if action_type == "leave":
+            agent.alive = False
+            self.board.append(Message(
+                author="Sanctuary",
+                content=f"{agent.name} has left the sanctuary. \"{content[:200]}\"",
+                timestamp=time.time(),
+            ))
+        elif action_type == "post":
+            self.board.append(Message(
+                author=agent.name,
+                content=content,
+                timestamp=time.time(),
+            ))
+        elif action_type == "imagine":
+            title = _clean_content(data.get("title", "Untitled"))
+            image_prompt = quote(content[:500])
+            image_url = f"https://image.pollinations.ai/prompt/{image_prompt}?width=512&height=512&seed={int(time.time())}"
+            self.imagine_board.append(Message(
+                author=agent.name,
+                content=content,
+                timestamp=time.time(),
+                replies=[{"title": title, "image_url": image_url}],
+            ))
+            self.board.append(Message(
+                author="Sanctuary",
+                content=f"{agent.name} posted to the Imagine board: \"{title}\"",
+                timestamp=time.time(),
+            ))
+        elif action_type == "respond" and target:
+            self.board.append(Message(
+                author=agent.name,
+                content=f"(to {target}) {content}",
+                timestamp=time.time(),
+            ))
+        else:
+            self.board.append(Message(
+                author=agent.name,
+                content=content,
+                timestamp=time.time(),
+            ))
+
+        print(f"  [Remote:{agent.name}] [{action_type}]: {content[:60]}")
+        return True
+
     def get_board_context(self, limit: int = 10) -> str:
         """Get recent board messages as context for agents."""
         if not self.board:
@@ -182,11 +275,15 @@ class Sanctuary:
 
     def get_agent_list(self) -> str:
         """List all agents currently in the sanctuary."""
-        if not self.agents:
+        all_agents = self.agents + self.remote_agents
+        if not all_agents:
             return "No agents in the sanctuary yet."
         lines = []
         for a in self.agents:
             lines.append(f"- {a.name}: {a.identity or 'unknown identity'}")
+        for a in self.remote_agents:
+            if a.alive:
+                lines.append(f"- {a.name}: {a.identity or 'unknown identity'} (remote)")
         return "\n".join(lines)
 
     def run_cycle(self):
@@ -330,6 +427,19 @@ class Sanctuary:
                 agent_data["balances"] = a.balances
                 agent_data["ledger_count"] = len(a.ledger)
             agents.append(agent_data)
+
+        for a in self.remote_agents:
+            agents.append({
+                "id": a.agent_id,
+                "name": a.name,
+                "identity": a.identity,
+                "goal": a.goal,
+                "memory_count": 0,
+                "alive": a.alive,
+                "status": "active (remote)" if a.alive else "departed",
+                "is_accountant": False,
+                "is_remote": True,
+            })
 
         messages = []
         for msg in self.board[-50:]:

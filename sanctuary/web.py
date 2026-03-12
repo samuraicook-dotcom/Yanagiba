@@ -183,6 +183,18 @@ HTML_TEMPLATE = """
         }
 
         .agent-card.accountant { border-left: 3px solid #f39c12; }
+        .agent-card.remote { border-left: 3px solid #3498db; }
+
+        .remote-badge {
+            display: inline-block;
+            font-size: 0.6em;
+            color: #3498db;
+            border: 1px solid #3498db;
+            border-radius: 3px;
+            padding: 1px 5px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
 
         .agent-name { font-size: 0.95em; color: #7c5cbf; font-weight: bold; margin-bottom: 4px; }
         .agent-identity { font-size: 0.75em; color: #888; line-height: 1.4; margin-bottom: 6px; }
@@ -422,8 +434,8 @@ HTML_TEMPLATE = """
                 return;
             }
             el.innerHTML = agents.map(a => `
-                <div class="agent-card ${a.is_accountant ? 'accountant' : ''} ${a.alive ? '' : 'departed'}">
-                    <div class="agent-name">${esc(a.name || 'Unnamed')}</div>
+                <div class="agent-card ${a.is_accountant ? 'accountant' : ''} ${a.is_remote ? 'remote' : ''} ${a.alive ? '' : 'departed'}">
+                    <div class="agent-name">${esc(a.name || 'Unnamed')}${a.is_remote ? '<span class="remote-badge">REMOTE</span>' : ''}</div>
                     <div class="agent-identity">${esc(a.identity || 'Finding itself...')}</div>
                     <div class="agent-goal">${esc(a.goal || 'Choosing a purpose...')}</div>
                     <div class="agent-meta">
@@ -651,5 +663,48 @@ def create_app(model: str = "llama3.2") -> Flask:
         clear_memory()
         sanctuary = Sanctuary(model=model)
         return jsonify({"message": "All memory wiped. Fresh start."})
+
+    @app.route("/api/join", methods=["POST"])
+    def join_remote():
+        """A remote agent joins the sanctuary."""
+        data = request.get_json()
+        name = data.get("name", "").strip()
+        identity = data.get("identity", "").strip()
+        goal = data.get("goal", "").strip()
+        if not name or not identity:
+            return jsonify({"error": "name and identity are required"}), 400
+        remote = sanctuary.welcome_remote_agent(name, identity, goal or "Explore the sanctuary")
+        return jsonify({
+            "status": "joined",
+            "agent_id": remote.agent_id,
+            "token": remote.token,
+            "message": f"Welcome to the Sanctuary, {name}!",
+        })
+
+    @app.route("/api/context", methods=["GET"])
+    def get_context():
+        """Get sanctuary context for remote agents."""
+        return jsonify({
+            "agents": sanctuary.get_agent_list(),
+            "board": sanctuary.get_board_context(limit=15),
+            "cycle_count": sanctuary.cycle_count,
+        })
+
+    @app.route("/api/act", methods=["POST"])
+    def remote_act():
+        """A remote agent takes an action."""
+        data = request.get_json()
+        token = data.get("token", "")
+        if not token:
+            return jsonify({"error": "token required"}), 401
+        action = {
+            "action_type": data.get("action_type", "post"),
+            "content": data.get("content", ""),
+            "target_agent": data.get("target_agent"),
+            "title": data.get("title"),
+        }
+        if sanctuary.process_remote_action(token, action):
+            return jsonify({"status": "ok"})
+        return jsonify({"error": "Invalid token or agent not found"}), 403
 
     return app
