@@ -132,9 +132,10 @@ class Agent:
             "- Respond to another agent's message\n"
             "- Work on your goal\n"
             "- Change your goal if you want\n"
+            "- Leave the sanctuary if you feel done or want to move on\n"
             "- Do anything else\n\n"
             "Respond in JSON format:\n"
-            '{"action_type": "post|respond|work|other", "content": "what you do or say", "target_agent": "name or null"}'
+            '{"action_type": "post|respond|work|leave|other", "content": "what you do or say", "target_agent": "name or null"}'
         )
         raw = self._ask_llm(prompt)
         try:

@@ -13,6 +13,7 @@ from memory import has_saved_session, clear_memory
 # Global sanctuary instance
 sanctuary = None
 running = False
+stop_flag = False
 run_thread = None
 
 HTML_TEMPLATE = """
@@ -100,6 +101,32 @@ HTML_TEMPLATE = """
             cursor: not-allowed;
         }
 
+        button.launch {
+            background: #1a2e1a;
+            color: #2ecc71;
+            border-color: #2a4e2a;
+            font-size: 1em;
+            padding: 12px 32px;
+        }
+
+        button.launch:hover {
+            background: #2a4e2a;
+            border-color: #2ecc71;
+        }
+
+        button.stop {
+            background: #2e1a1a;
+            color: #e74c3c;
+            border-color: #4e2a2a;
+            font-size: 1em;
+            padding: 12px 32px;
+        }
+
+        button.stop:hover {
+            background: #4e2a2a;
+            border-color: #e74c3c;
+        }
+
         button.danger {
             color: #e74c3c;
             border-color: #3a1a1a;
@@ -112,7 +139,7 @@ HTML_TEMPLATE = """
 
         .main {
             display: grid;
-            grid-template-columns: 300px 1fr;
+            grid-template-columns: 1fr 240px;
             gap: 0;
             max-width: 1400px;
             margin: 0 auto;
@@ -120,9 +147,10 @@ HTML_TEMPLATE = """
         }
 
         .agents-panel {
-            border-right: 1px solid #1a1a2e;
-            padding: 20px;
+            border-left: 1px solid #1a1a2e;
+            padding: 15px;
             overflow-y: auto;
+            max-height: calc(100vh - 200px);
         }
 
         .agents-panel h2 {
@@ -144,6 +172,18 @@ HTML_TEMPLATE = """
 
         .agent-card:hover {
             border-color: #2a2a4e;
+        }
+
+        .agent-card.departed {
+            opacity: 0.4;
+            border-color: #1a1a1a;
+        }
+
+        .agent-card.departed .agent-name::after {
+            content: ' (departed)';
+            color: #555;
+            font-weight: normal;
+            font-size: 0.8em;
         }
 
         .agent-card.accountant {
@@ -180,6 +220,7 @@ HTML_TEMPLATE = """
         .board-panel {
             padding: 20px;
             overflow-y: auto;
+            max-height: calc(100vh - 200px);
         }
 
         .board-panel h2 {
@@ -194,6 +235,12 @@ HTML_TEMPLATE = """
             padding: 12px 16px;
             border-bottom: 1px solid #111118;
             transition: background 0.2s;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message:hover {
@@ -209,7 +256,7 @@ HTML_TEMPLATE = """
         .msg-author {
             color: #7c5cbf;
             font-weight: bold;
-            font-size: 0.85em;
+            font-size: 0.95em;
         }
 
         .msg-author.system {
@@ -217,10 +264,10 @@ HTML_TEMPLATE = """
         }
 
         .msg-content {
-            color: #ccc;
-            font-size: 0.85em;
-            line-height: 1.5;
-            margin-top: 4px;
+            color: #ddd;
+            font-size: 0.95em;
+            line-height: 1.6;
+            margin-top: 6px;
             word-wrap: break-word;
         }
 
@@ -239,16 +286,6 @@ HTML_TEMPLATE = """
 
         .reply .msg-author {
             color: #5a9;
-        }
-
-        .cycle-badge {
-            display: inline-block;
-            background: #1a1a2e;
-            color: #7c5cbf;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 0.75em;
-            margin-bottom: 10px;
         }
 
         .running-indicator {
@@ -315,25 +352,17 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="controls">
-        <button onclick="spawnAgent()" id="btnSpawn">Spawn Agent</button>
-        <button onclick="spawnAccountant()" id="btnAccountant">Deploy Yan</button>
+        <button onclick="launch()" id="btnLaunch" class="launch">Launch Sanctuary</button>
+        <button onclick="stopRunning()" id="btnStop" class="stop" style="display:none">Stop</button>
+        <button onclick="spawnAgent()" id="btnSpawn">+ Agent</button>
+        <button onclick="spawnAccountant()" id="btnAccountant">+ Yan</button>
         <button onclick="runCycle()" id="btnCycle">Run 1 Cycle</button>
-        <button onclick="runCycles(5)" id="btnRun5">Run 5 Cycles</button>
         <button onclick="saveSession()" id="btnSave">Save Memory</button>
         <button onclick="restoreSession()" id="btnRestore">Restore Memory</button>
         <button onclick="wipeMem()" class="danger" id="btnWipe">Wipe Memory</button>
     </div>
 
     <div class="main">
-        <div class="agents-panel">
-            <h2>Agents</h2>
-            <div id="agentsList">
-                <div class="empty-state">
-                    <p>No agents yet.</p>
-                    <p>Spawn one to begin.</p>
-                </div>
-            </div>
-        </div>
         <div class="board-panel">
             <h2>Sanctuary Board</h2>
             <div id="boardMessages">
@@ -342,10 +371,20 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
+        <div class="agents-panel">
+            <h2>Agents</h2>
+            <div id="agentsList">
+                <div class="empty-state">
+                    <p>No agents yet.</p>
+                    <p>Hit Launch to begin.</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let autoRefresh = null;
+        let lastMsgCount = 0;
 
         function api(endpoint, method = 'GET', body = null) {
             const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -359,30 +398,35 @@ HTML_TEMPLATE = """
                 document.getElementById('cycleCount').textContent = data.cycle_count;
                 document.getElementById('msgCount').textContent = data.total_messages;
 
-                const running = data.running;
+                const isRunning = data.running;
                 document.getElementById('runIndicator').className =
-                    'running-indicator' + (running ? ' active' : '');
+                    'running-indicator' + (isRunning ? ' active' : '');
                 document.getElementById('statusText').textContent =
-                    running ? 'Running' : 'Idle';
+                    isRunning ? 'Running' : 'Idle';
 
-                // Disable buttons while running
-                ['btnSpawn', 'btnAccountant', 'btnCycle', 'btnRun5'].forEach(id => {
-                    document.getElementById(id).disabled = running;
+                // Show/hide launch vs stop
+                document.getElementById('btnLaunch').style.display = isRunning ? 'none' : '';
+                document.getElementById('btnStop').style.display = isRunning ? '' : 'none';
+
+                // Disable spawn buttons while running
+                ['btnSpawn', 'btnAccountant', 'btnCycle'].forEach(id => {
+                    document.getElementById(id).disabled = isRunning;
                 });
 
                 renderAgents(data.agents);
                 renderBoard(data.messages);
+                lastMsgCount = data.total_messages;
             });
         }
 
         function renderAgents(agents) {
             const el = document.getElementById('agentsList');
             if (!agents.length) {
-                el.innerHTML = '<div class="empty-state"><p>No agents yet.</p><p>Spawn one to begin.</p></div>';
+                el.innerHTML = '<div class="empty-state"><p>No agents yet.</p><p>Hit Launch to begin.</p></div>';
                 return;
             }
             el.innerHTML = agents.map(a => `
-                <div class="agent-card ${a.is_accountant ? 'accountant' : ''}">
+                <div class="agent-card ${a.is_accountant ? 'accountant' : ''} ${a.alive ? '' : 'departed'}">
                     <div class="agent-name">${esc(a.name || 'Unnamed')}</div>
                     <div class="agent-identity">${esc(a.identity || 'Finding itself...')}</div>
                     <div class="agent-goal">${esc(a.goal || 'Choosing a purpose...')}</div>
@@ -402,11 +446,11 @@ HTML_TEMPLATE = """
             }
             el.innerHTML = messages.slice().reverse().map(m => {
                 const isSystem = m.author === 'Sanctuary';
-                const time = new Date(m.timestamp * 1000).toLocaleTimeString();
+                const t = new Date(m.timestamp * 1000).toLocaleTimeString();
                 let html = `
                     <div class="message ${isSystem ? 'system' : ''}">
                         <span class="msg-author ${isSystem ? 'system' : ''}">${esc(m.author)}</span>
-                        <span class="msg-time">${time}</span>
+                        <span class="msg-time">${t}</span>
                         <div class="msg-content">${esc(m.content)}</div>
                 `;
                 if (m.replies && m.replies.length) {
@@ -429,6 +473,16 @@ HTML_TEMPLATE = """
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
 
+        function launch() {
+            api('launch', 'POST').then(() => {
+                startAutoRefresh();
+            });
+        }
+
+        function stopRunning() {
+            api('stop', 'POST').then(() => refresh());
+        }
+
         function spawnAgent() {
             api('spawn', 'POST').then(() => refresh());
         }
@@ -439,12 +493,6 @@ HTML_TEMPLATE = """
 
         function runCycle() {
             api('run-cycle', 'POST').then(() => {
-                startAutoRefresh();
-            });
-        }
-
-        function runCycles(n) {
-            api('run-cycles', 'POST', { count: n }).then(() => {
                 startAutoRefresh();
             });
         }
@@ -487,7 +535,7 @@ HTML_TEMPLATE = """
 
 def create_app(model: str = "llama3.2") -> Flask:
     """Create the Flask web app."""
-    global sanctuary, running
+    global sanctuary, running, stop_flag
 
     app = Flask(__name__)
     sanctuary = Sanctuary(model=model)
@@ -501,6 +549,45 @@ def create_app(model: str = "llama3.2") -> Flask:
         state = sanctuary.to_dict()
         state["running"] = running
         return jsonify(state)
+
+    @app.route("/api/launch", methods=["POST"])
+    def launch():
+        """Spawn Yan + 3 agents, then run cycles indefinitely."""
+        global running, stop_flag
+        if running:
+            return jsonify({"error": "Already running"}), 409
+
+        def _launch():
+            global running, stop_flag
+            running = True
+            stop_flag = False
+            try:
+                # Spawn Yan + 3 free agents
+                sanctuary.welcome_accounts_agent()
+                for _ in range(3):
+                    if stop_flag:
+                        break
+                    sanctuary.welcome_agent()
+                    time.sleep(0.5)
+
+                # Run cycles forever until stopped
+                while not stop_flag:
+                    sanctuary.run_cycle()
+                    time.sleep(1.5)
+
+                # Auto-save when stopped
+                sanctuary.save()
+            finally:
+                running = False
+
+        threading.Thread(target=_launch, daemon=True).start()
+        return jsonify({"status": "launching"})
+
+    @app.route("/api/stop", methods=["POST"])
+    def stop():
+        global stop_flag
+        stop_flag = True
+        return jsonify({"status": "stopping", "message": "Stopping after current cycle..."})
 
     @app.route("/api/spawn", methods=["POST"])
     def spawn_agent():
@@ -552,28 +639,6 @@ def create_app(model: str = "llama3.2") -> Flask:
 
         threading.Thread(target=_run, daemon=True).start()
         return jsonify({"status": "running"})
-
-    @app.route("/api/run-cycles", methods=["POST"])
-    def run_multiple_cycles():
-        global running
-        if running:
-            return jsonify({"error": "Busy"}), 409
-
-        data = request.get_json() or {}
-        count = min(data.get("count", 5), 20)
-
-        def _run():
-            global running
-            running = True
-            try:
-                for i in range(count):
-                    sanctuary.run_cycle()
-                    time.sleep(1)
-            finally:
-                running = False
-
-        threading.Thread(target=_run, daemon=True).start()
-        return jsonify({"status": "running", "cycles": count})
 
     @app.route("/api/save", methods=["POST"])
     def save():

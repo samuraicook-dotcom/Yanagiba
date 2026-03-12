@@ -180,7 +180,18 @@ class Sanctuary:
                 content = data.get("content", "...")
                 target = data.get("target_agent")
 
-                if action_type == "post":
+                if action_type == "leave":
+                    agent.alive = False
+                    farewell = content or "has left the sanctuary."
+                    self.board.append(Message(
+                        author="Sanctuary",
+                        content=f"{agent.name} has left the sanctuary. \"{farewell[:200]}\"",
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] LEFT THE SANCTUARY: {farewell[:80]}")
+                    continue
+
+                elif action_type == "post":
                     self.board.append(Message(
                         author=agent.name,
                         content=content,
@@ -252,6 +263,7 @@ class Sanctuary:
                 "goal": a.goal,
                 "memory_count": len(a.memory),
                 "alive": a.alive,
+                "status": "active" if a.alive else "departed",
                 "is_accountant": hasattr(a, "ledger"),
             }
             if hasattr(a, "balances"):
