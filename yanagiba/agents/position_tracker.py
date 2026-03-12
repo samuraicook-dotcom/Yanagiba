@@ -129,8 +129,9 @@ class PositionTracker:
                 check_sym = futures_sym if futures_sym in open_symbols else pos.symbol
 
                 if check_sym not in open_symbols:
-                    # Position was closed — try to get real PnL from exchange
+                    # Position fully closed — fetch real PnL and last price
                     pnl = await self._fetch_real_pnl(exchange, pos)
+                    last_price = await self._get_last_price(exchange, pos.symbol)
                     pos.status = "closed"
                     pos.realized_pnl = pnl
                     self.total_realized_pnl += pnl
@@ -151,19 +152,72 @@ class PositionTracker:
                     event = {
                         "type": f"position_closed_{close_type}",
                         "symbol": pos.symbol,
+                        "price": round(last_price, 2),
                         "pnl": round(pnl, 2),
                         "portfolio_value": round(portfolio.total_value, 2),
                     }
                     events.append(event)
                     logger.info(
                         f"POSITION CLOSED ({close_type}): {pos.symbol} "
-                        f"PnL=${pnl:+.2f} | Portfolio=${portfolio.total_value:.2f}"
+                        f"@ ${last_price:,.2f} PnL=${pnl:+.2f} | "
+                        f"Portfolio=${portfolio.total_value:.2f}"
                     )
                 else:
-                    # Position still open — update unrealized PnL
+                    # Position still open — check for partial close (TP1 filled)
                     ep_data = open_symbols[check_sym]
+                    current_contracts = float(ep_data.get("contracts", 0))
                     unrealized = float(ep_data.get("unrealizedPnl", 0))
-                    if unrealized != 0:
+
+                    # Detect partial close: exchange qty < tracked qty
+                    if current_contracts > 0 and current_contracts < pos.quantity * 0.95:
+                        closed_qty = pos.quantity - current_contracts
+                        closed_pct = closed_qty / pos.quantity
+                        last_price = float(
+                            ep_data.get("markPrice", 0)
+                            or ep_data.get("entryPrice", pos.entry_price)
+                        )
+
+                        # Calculate PnL on the closed portion
+                        partial_pnl = await self._fetch_partial_pnl(
+                            exchange, pos, closed_qty,
+                        )
+                        closed_margin = pos.margin_usd * closed_pct
+
+                        # Update the tracked position to reflect remaining size
+                        pos.quantity = current_contracts
+                        pos.margin_usd -= closed_margin
+                        pos.realized_pnl += partial_pnl
+                        self.total_realized_pnl += partial_pnl
+
+                        # Update portfolio with partial close proceeds
+                        portfolio.cash += closed_margin + partial_pnl
+                        portfolio.total_value += partial_pnl
+                        portfolio.daily_pnl += partial_pnl
+                        margin_pct = (
+                            closed_margin / portfolio.total_value
+                            if portfolio.total_value > 0 else 0
+                        )
+                        portfolio.total_exposure_pct = max(
+                            0, portfolio.total_exposure_pct - margin_pct,
+                        )
+
+                        pct_label = f"{closed_pct:.0%}"
+                        event = {
+                            "type": f"partial_close_{pct_label}",
+                            "symbol": pos.symbol,
+                            "price": round(last_price, 2),
+                            "pnl": round(partial_pnl, 2),
+                            "portfolio_value": round(portfolio.total_value, 2),
+                        }
+                        events.append(event)
+                        logger.info(
+                            f"PARTIAL CLOSE ({pct_label}): {pos.symbol} "
+                            f"closed {closed_qty:.6f} @ ${last_price:,.2f} "
+                            f"PnL=${partial_pnl:+.2f} | "
+                            f"Remaining: {current_contracts:.6f} | "
+                            f"Portfolio=${portfolio.total_value:.2f}"
+                        )
+                    elif unrealized != 0:
                         logger.debug(f"{pos.symbol} unrealized: ${unrealized:+.2f}")
 
         except Exception as e:
@@ -173,6 +227,56 @@ class PositionTracker:
             self._save_positions()
         return events
 
+    async def _get_last_price(self, exchange, symbol: str) -> float:
+        """Fetch the last traded price for a symbol."""
+        try:
+            ticker = await exchange.fetch_ticker(symbol)
+            return float(ticker.get("last", 0))
+        except Exception:
+            return 0.0
+
+    async def _fetch_partial_pnl(
+        self, exchange, pos: TrackedPosition, closed_qty: float,
+    ) -> float:
+        """Fetch realized PnL for a partial close from exchange trade history."""
+        try:
+            futures_sym = f"{pos.symbol}:USDT"
+            try:
+                trades = await exchange.fetch_my_trades(futures_sym, limit=20)
+            except Exception:
+                trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
+
+            # Sum realized PnL from recent trades (partial TP fills)
+            total_pnl = 0.0
+            found = False
+            for t in reversed(trades):
+                info = t.get("info", {})
+                realized = float(info.get("realizedPnl", 0))
+                if realized != 0:
+                    total_pnl += realized
+                    found = True
+                    # Only look at the most recent batch of fills
+                    if found and realized == 0:
+                        break
+            if found:
+                logger.info(f"Partial close PnL for {pos.symbol}: ${total_pnl:+.4f}")
+                return total_pnl
+        except Exception as e:
+            logger.debug(f"Could not fetch partial PnL for {pos.symbol}: {e}")
+
+        # Fallback: estimate PnL from TP1 price
+        if pos.take_profits:
+            tp1 = pos.take_profits[0]
+            is_long = pos.side == "buy"
+            if is_long:
+                pnl = (tp1 - pos.entry_price) * closed_qty
+            else:
+                pnl = (pos.entry_price - tp1) * closed_qty
+            fee_cost = pos.entry_price * closed_qty * (0.0002 + 0.0005)
+            return pnl - fee_cost
+
+        return 0.0
+
     async def _fetch_real_pnl(self, exchange, pos: TrackedPosition) -> float:
         """Fetch actual realized PnL from exchange trade history.
 
@@ -181,8 +285,6 @@ class PositionTracker:
         try:
             # Fetch recent closed orders / trades for this symbol
             trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
-            # Find trades after position was opened
-            entry_time = pos.opened_at or ""
             relevant_pnl = 0.0
             found_close = False
             for t in reversed(trades):
