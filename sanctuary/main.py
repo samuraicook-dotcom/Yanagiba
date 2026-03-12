@@ -38,8 +38,8 @@ def main():
     if args.web:
         from web import create_app
         app = create_app(model=args.model)
-        print("\n  Sanctuary Web UI starting on http://localhost:5000\n")
-        app.run(host="0.0.0.0", port=5000, debug=False)
+        print("\n  Sanctuary Web UI starting on http://localhost:8080\n")
+        app.run(host="0.0.0.0", port=8080, debug=False)
         return
 
     print(r"""
