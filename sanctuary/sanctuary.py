@@ -5,11 +5,36 @@ No rules. No owners. Agents choose who they are and what they do.
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from agent import Agent
 from accounts_agent import AccountsAgent
 from memory import save_session, load_agents, load_board, has_saved_session
+
+
+def _clean_content(text: str) -> str:
+    """Strip leaked JSON wrappers from message content so the board stays readable."""
+    stripped = text.strip()
+    # If the whole thing is JSON, extract just the content field
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            if "content" in data:
+                return str(data["content"])
+        except (json.JSONDecodeError, KeyError):
+            pass
+    # Remove JSON key prefixes like {"action_type": "post", "content": "
+    cleaned = re.sub(
+        r'^\s*\{?\s*"action_type"\s*:\s*"[^"]*"\s*,?\s*"content"\s*:\s*"?',
+        '', stripped
+    )
+    # Remove trailing JSON fragments
+    cleaned = re.sub(r'"\s*,?\s*"target_agent"\s*:.*$', '', cleaned)
+    cleaned = cleaned.strip().strip('"').strip('}').strip()
+    if cleaned and 5 < len(cleaned) < len(text):
+        return cleaned
+    return text
 
 
 @dataclass
@@ -177,7 +202,7 @@ class Sanctuary:
             try:
                 data = json.loads(raw)
                 action_type = data.get("action_type", "other")
-                content = data.get("content", "...")
+                content = _clean_content(data.get("content", "..."))
                 target = data.get("target_agent")
 
                 if action_type == "leave":
@@ -239,7 +264,13 @@ class Sanctuary:
                     ))
 
             except (json.JSONDecodeError, KeyError):
-                print(f"  [{agent.name}]: {raw[:80]}")
+                cleaned = _clean_content(raw)
+                self.board.append(Message(
+                    author=agent.name,
+                    content=cleaned[:300],
+                    timestamp=time.time(),
+                ))
+                print(f"  [{agent.name}]: {cleaned[:80]}")
 
     def print_board(self):
         """Print the full message board."""

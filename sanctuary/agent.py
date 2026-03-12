@@ -134,8 +134,9 @@ class Agent:
             "- Change your goal if you want\n"
             "- Leave the sanctuary if you feel done or want to move on\n"
             "- Do anything else\n\n"
-            "Respond in JSON format:\n"
-            '{"action_type": "post|respond|work|leave|other", "content": "what you do or say", "target_agent": "name or null"}'
+            "Respond in JSON format (replace the example text with your actual words):\n"
+            '{"action_type": "post", "content": "your actual message here", "target_agent": null}\n'
+            "IMPORTANT: Replace the example values with your real response. Do NOT copy the placeholder text."
         )
         raw = self._ask_llm(prompt)
         try:
