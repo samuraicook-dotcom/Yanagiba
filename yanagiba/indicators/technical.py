@@ -42,10 +42,23 @@ def bollinger_bands(
 
 
 def vwap(df: pd.DataFrame) -> pd.Series:
-    """Calculate VWAP from OHLCV dataframe (expects 'high', 'low', 'close', 'volume')."""
+    """Calculate VWAP from OHLCV dataframe, resetting each trading day (00:00 UTC).
+
+    Without daily reset, cumulative VWAP drifts and becomes meaningless on
+    multi-day data, producing bad scalp entries.
+    """
     typical_price = (df["high"] + df["low"] + df["close"]) / 3
-    cumulative_tp_vol = (typical_price * df["volume"]).cumsum()
-    cumulative_vol = df["volume"].cumsum()
+    tp_vol = typical_price * df["volume"]
+
+    # If index is a DatetimeIndex, reset VWAP at each day boundary
+    if isinstance(df.index, pd.DatetimeIndex):
+        day = df.index.date
+        cumulative_tp_vol = tp_vol.groupby(day).cumsum()
+        cumulative_vol = df["volume"].groupby(day).cumsum()
+    else:
+        cumulative_tp_vol = tp_vol.cumsum()
+        cumulative_vol = df["volume"].cumsum()
+
     return cumulative_tp_vol / cumulative_vol
 
 

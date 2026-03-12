@@ -127,7 +127,13 @@ class SentimentTracker:
         geo_score = geo_data["score"]
         news_score = news_data["score"]
         gaming_score = gaming_data["score"]
-        overall = max(-10, min(10, (fg_score + geo_score + news_score) / 3 * 5))
+        # Weight by active sources: only average over sources that returned data
+        active_scores = [s for s in [fg_score, geo_score, news_score] if s != 0.0]
+        if active_scores:
+            raw_avg = sum(active_scores) / len(active_scores)
+        else:
+            raw_avg = 0.0
+        overall = max(-10, min(10, raw_avg * 3))
 
         return SentimentReport(
             overall_score=round(overall, 2),
@@ -172,13 +178,38 @@ class SentimentTracker:
                 if resp.status == 200:
                     data = await resp.json()
                     coins = data.get("coins", [])
-                    # If memecoins are trending, risk-on sentiment
                     names = [c["item"]["name"].lower() for c in coins[:5]]
                     events.append(f"Trending: {', '.join(names)}")
+
+                    # Score trending coins for risk sentiment
+                    meme_keywords = ["pepe", "doge", "shib", "floki", "bonk", "wif", "meme"]
+                    defi_keywords = ["aave", "uni", "link", "maker", "lido"]
+                    meme_count = sum(1 for n in names if any(kw in n for kw in meme_keywords))
+                    defi_count = sum(1 for n in names if any(kw in n for kw in defi_keywords))
+
+                    if meme_count >= 2:
+                        score += 1.5  # memecoins trending = speculative risk-on
+                        events.append("Memecoins trending — risk-on sentiment")
+                    if defi_count >= 2:
+                        score += 1.0  # DeFi trending = institutional interest
+                        events.append("DeFi tokens trending — institutional interest")
+
+            # Check for geo hotspot keywords in CryptoPanic headlines
+            url = "https://cryptopanic.com/api/free/v1/posts/?auth_token=public&public=true"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for post in data.get("results", [])[:15]:
+                        title = post.get("title", "").lower()
+                        for hotspot in GEO_WATCHLIST:
+                            if hotspot in title:
+                                score -= 1.0
+                                flags.append(f"GEO: {post['title'][:80]}")
+                                break
         except Exception as e:
             logger.warning(f"Geo scan error: {e}")
 
-        return {"score": score, "events": events, "flags": flags}
+        return {"score": max(-5, min(5, score)), "events": events, "flags": flags}
 
     async def _analyze_news(self) -> dict[str, Any]:
         """Analyze news headlines for crypto-relevant sentiment.
@@ -199,17 +230,20 @@ class SentimentTracker:
                     data = await resp.json()
                     for post in data.get("results", [])[:20]:
                         title = post.get("title", "").lower()
-                        # Score against keyword lists
+                        # Score against keyword lists (only one match per headline)
+                        matched = False
                         for kw in BEARISH_KEYWORDS:
                             if kw in title:
                                 score -= 0.5
                                 events.append(f"BEARISH: {post['title'][:80]}")
+                                matched = True
                                 break
-                        for kw in BULLISH_KEYWORDS:
-                            if kw in title:
-                                score += 0.5
-                                opportunities.append(f"BULLISH: {post['title'][:80]}")
-                                break
+                        if not matched:
+                            for kw in BULLISH_KEYWORDS:
+                                if kw in title:
+                                    score += 0.5
+                                    opportunities.append(f"BULLISH: {post['title'][:80]}")
+                                    break
         except Exception as e:
             logger.warning(f"News analysis error: {e}")
 

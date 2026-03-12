@@ -17,7 +17,7 @@ import logging
 import logging.handlers
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -78,6 +78,7 @@ class TradingBot:
         self.portfolio = self._load_portfolio()
         self._running = False
         self._restart_requested = False
+        self._last_daily_reset: str = ""  # track date of last PnL reset
 
     def _load_portfolio(self) -> PortfolioState:
         """Restore portfolio state from disk, or use defaults."""
@@ -85,11 +86,13 @@ class TradingBot:
             try:
                 data = json.loads(PORTFOLIO_FILE.read_text())
                 logger.info(f"Restored portfolio: ${data['total_value']:.2f}")
+                self._last_daily_reset = data.get("last_daily_reset", "")
                 return PortfolioState(
                     total_value=data.get("total_value", 49.0),
                     cash=data.get("cash", 49.0),
                     total_exposure_pct=data.get("total_exposure_pct", 0.0),
                     daily_pnl=data.get("daily_pnl", 0.0),
+                    daily_loss_pct=data.get("daily_loss_pct", 0.0),
                 )
             except Exception as e:
                 logger.warning(f"Could not restore portfolio: {e}")
@@ -104,6 +107,8 @@ class TradingBot:
                 "cash": self.portfolio.cash,
                 "total_exposure_pct": self.portfolio.total_exposure_pct,
                 "daily_pnl": self.portfolio.daily_pnl,
+                "daily_loss_pct": self.portfolio.daily_loss_pct,
+                "last_daily_reset": self._last_daily_reset,
             }, indent=2))
         except Exception as e:
             logger.warning(f"Could not save portfolio: {e}")
@@ -117,11 +122,27 @@ class TradingBot:
         except ImportError:
             pass
 
+        # Reset daily PnL at 00:00 UTC each new day
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if today != self._last_daily_reset:
+            logger.info(f"New trading day ({today}): resetting daily PnL")
+            self.portfolio.daily_pnl = 0.0
+            self.portfolio.daily_loss_pct = 0.0
+            self._last_daily_reset = today
+
+        # Update daily_loss_pct from daily_pnl so risk manager can enforce limits
+        if self.portfolio.total_value > 0 and self.portfolio.daily_pnl < 0:
+            self.portfolio.daily_loss_pct = (
+                abs(self.portfolio.daily_pnl) / self.portfolio.total_value
+            )
+        else:
+            self.portfolio.daily_loss_pct = 0.0
+
         # Ensure markets are loaded (needed for futures symbol resolution)
         await self.data_provider.load_markets()
 
         cycle_results = []
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         console.rule(f"[bold cyan]Yanagiba Cycle — {timestamp}")
 
@@ -145,6 +166,13 @@ class TradingBot:
             )
         if events:
             self.journal.update_drawdown(self.portfolio.total_value)
+            # Recalculate daily loss pct after position events
+            if self.portfolio.total_value > 0 and self.portfolio.daily_pnl < 0:
+                self.portfolio.daily_loss_pct = (
+                    abs(self.portfolio.daily_pnl) / self.portfolio.total_value
+                )
+            else:
+                self.portfolio.daily_loss_pct = 0.0
 
         # 1. Fetch geopolitical / news sentiment
         logger.info("AGENT 1a: Fetching geopolitical & news sentiment...")
