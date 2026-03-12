@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from agent import Agent
 from accounts_agent import AccountsAgent
-from memory import save_session, load_agents, load_board, has_saved_session
+from memory import save_session, load_agents, load_board, load_imagine_board, has_saved_session
 
 
 def _clean_content(text: str) -> str:
@@ -98,7 +98,15 @@ class Sanctuary:
                 replies=msg_data.get("replies", []),
             ))
 
-        print(f"    Restored {len(self.board)} board messages.")
+        for msg_data in load_imagine_board():
+            self.imagine_board.append(Message(
+                author=msg_data["author"],
+                content=msg_data["content"],
+                timestamp=msg_data["timestamp"],
+                replies=msg_data.get("replies", []),
+            ))
+
+        print(f"    Restored {len(self.board)} board messages, {len(self.imagine_board)} imagine posts.")
         self.board.append(Message(
             author="Sanctuary",
             content="A new session begins. All agents have returned with their memories.",

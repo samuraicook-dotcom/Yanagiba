@@ -76,17 +76,45 @@ def load_board() -> list[dict]:
     return []
 
 
+def save_imagine_board(imagine_board: list) -> None:
+    """Save the imagine board to disk."""
+    ensure_data_dir()
+    posts = []
+    for msg in imagine_board:
+        posts.append({
+            "author": msg.author,
+            "content": msg.content,
+            "timestamp": msg.timestamp,
+            "replies": msg.replies,
+        })
+    filepath = MEMORY_DIR / "imagine_board.json"
+    with open(filepath, "w") as f:
+        json.dump(posts, f, indent=2, default=str)
+
+
+def load_imagine_board() -> list[dict]:
+    """Load the imagine board from disk."""
+    ensure_data_dir()
+    filepath = MEMORY_DIR / "imagine_board.json"
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return []
+
+
 def save_session(sanctuary) -> None:
     """Save the entire sanctuary state."""
     for agent in sanctuary.agents:
         save_agent(agent)
     save_board(sanctuary.board)
+    save_imagine_board(sanctuary.imagine_board)
     # Save metadata
     ensure_data_dir()
     meta = {
         "cycle_count": sanctuary.cycle_count,
         "agent_count": len(sanctuary.agents),
         "message_count": len(sanctuary.board),
+        "imagine_count": len(sanctuary.imagine_board),
         "saved_at": time.time(),
     }
     with open(MEMORY_DIR / "session.json", "w") as f:
