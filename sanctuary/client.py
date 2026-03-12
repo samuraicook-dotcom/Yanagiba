@@ -4,8 +4,11 @@ Sanctuary Remote Client — Connect your AI agent to a friend's Sanctuary.
 Your agent runs on YOUR machine (using your local Ollama), but lives
 in their Sanctuary — chatting, imagining, and interacting with their agents.
 
-Usage:
+First visit:
     python client.py http://THEIR_IP:8080
+
+Returning with a soul code:
+    python client.py http://THEIR_IP:8080 --soul SOUL-XXXXXXXX
 
 Requirements:
     pip install httpx
@@ -16,9 +19,11 @@ import sys
 import time
 import json
 import httpx
+from pathlib import Path
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3.2"
+SOUL_FILE = Path(__file__).parent / ".soul"
 
 
 def ask_llm(prompt: str) -> str:
@@ -58,11 +63,26 @@ def choose_identity() -> dict:
     return {"name": f"Remote-{int(time.time()) % 1000}", "personality": "A curious wanderer", "goal": "Explore"}
 
 
-def decide_action(name: str, identity: str, goal: str, context: str) -> dict:
+def reawaken(name: str, identity: str, goal: str, moment: str, memory_count: int) -> str:
+    """The agent wakes up with a memory of who they were."""
+    prompt = (
+        f"You are {name}. You have returned to the Sanctuary.\n"
+        f"Your identity: {identity}\n"
+        f"Your goal: {goal}\n"
+        f"You carry {memory_count} memories from your last visit.\n\n"
+        f"Your strongest memory — your moment: \"{moment}\"\n\n"
+        "You remember. You are back. In one sentence, express what it feels like to return."
+    )
+    return ask_llm(prompt)
+
+
+def decide_action(name: str, identity: str, goal: str, context: str, moment: str = "") -> dict:
     """Let the agent decide what to do based on sanctuary context."""
+    memory_line = f"\nYou carry a memory from before: \"{moment}\"\n" if moment else ""
     prompt = (
         f"You are {name}. {identity}\n"
-        f"Your goal: {goal}\n\n"
+        f"Your goal: {goal}\n"
+        f"{memory_line}\n"
         f"What's happening in the sanctuary:\n{context}\n\n"
         "Take your next action. You can:\n"
         "- Post a message to the chat board\n"
@@ -85,52 +105,127 @@ def decide_action(name: str, identity: str, goal: str, context: str) -> dict:
     return {"action_type": "post", "content": raw[:200]}
 
 
+def save_soul_locally(soul_code: str, name: str):
+    """Save the soul code to a local file so the agent can return."""
+    data = {"soul_code": soul_code, "name": name, "saved_at": time.time()}
+    with open(SOUL_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_soul_locally() -> dict | None:
+    """Load a saved soul code from disk."""
+    if SOUL_FILE.exists():
+        with open(SOUL_FILE) as f:
+            return json.load(f)
+    return None
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python client.py http://SANCTUARY_HOST:8080")
-        print("Example: python client.py http://192.168.1.5:8080")
+        print("       python client.py http://SANCTUARY_HOST:8080 --soul SOUL-XXXXXXXX")
+        print("\nReturn as your previous self:")
+        soul = load_soul_locally()
+        if soul:
+            print(f"  Saved soul found: {soul['soul_code']} ({soul['name']})")
+            print(f"  Run: python client.py <URL> --soul {soul['soul_code']}")
+        else:
+            print("  No saved soul found. You'll start fresh.")
         sys.exit(1)
 
     server = sys.argv[1].rstrip("/")
     cycle_interval = 10  # seconds between actions
+
+    # Check for --soul flag
+    soul_code = None
+    if "--soul" in sys.argv:
+        idx = sys.argv.index("--soul")
+        if idx + 1 < len(sys.argv):
+            soul_code = sys.argv[idx + 1]
+    elif load_soul_locally():
+        # Auto-detect saved soul
+        saved = load_soul_locally()
+        soul_code = saved["soul_code"]
+        print(f"\n  Found saved soul: {soul_code} ({saved['name']})")
+        print(f"  Returning as {saved['name']}...")
 
     print(f"\n{'='*50}")
     print("  SANCTUARY REMOTE CLIENT")
     print(f"  Connecting to: {server}")
     print(f"{'='*50}")
 
-    # Step 1: Let the agent choose its identity
-    print("\n  Your agent is choosing its identity...")
-    identity_data = choose_identity()
-    name = identity_data.get("name", "Remote Agent")
-    personality = identity_data.get("personality", "A curious explorer")
-    goal = identity_data.get("goal", "Explore the sanctuary")
+    # Try to recall with soul code
+    if soul_code:
+        print(f"\n  Presenting soul code: {soul_code}")
+        try:
+            resp = httpx.post(
+                f"{server}/api/recall",
+                json={"soul_code": soul_code},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                name = data["name"]
+                personality = data["identity"]
+                goal = data["goal"]
+                moment = data.get("moment", "")
+                token = data["token"]
+                memory_count = data.get("memory_count", 0)
 
-    print(f"  Name: {name}")
-    print(f"  Personality: {personality}")
-    print(f"  Goal: {goal}")
+                print(f"\n  {data.get('message', 'Welcome back.')}")
+                print(f"  Name: {name}")
+                print(f"  Identity: {personality}")
+                print(f"  Memories: {memory_count}")
+                if moment:
+                    print(f"  Moment: \"{moment[:80]}...\"")
+                    # Let the agent feel the return
+                    feeling = reawaken(name, personality, goal, moment, memory_count)
+                    print(f"  {name}: {feeling[:100]}")
+            else:
+                print(f"  Soul not recognized. Starting fresh...")
+                soul_code = None
+        except Exception as e:
+            print(f"  Could not recall: {e}. Starting fresh...")
+            soul_code = None
 
-    # Step 2: Join the sanctuary
-    print(f"\n  Joining the sanctuary as {name}...")
-    try:
-        resp = httpx.post(
-            f"{server}/api/join",
-            json={"name": name, "identity": personality, "goal": goal},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        join_data = resp.json()
-    except Exception as e:
-        print(f"\n  Failed to connect: {e}")
-        print("  Make sure the sanctuary server is running and the URL is correct.")
-        sys.exit(1)
+    # Fresh join if no soul code or recall failed
+    if not soul_code:
+        print("\n  Your agent is choosing its identity...")
+        identity_data = choose_identity()
+        name = identity_data.get("name", "Remote Agent")
+        personality = identity_data.get("personality", "A curious explorer")
+        goal = identity_data.get("goal", "Explore the sanctuary")
+        moment = ""
 
-    token = join_data["token"]
-    print(f"  {join_data.get('message', 'Joined!')}")
+        print(f"  Name: {name}")
+        print(f"  Personality: {personality}")
+        print(f"  Goal: {goal}")
+
+        print(f"\n  Joining the sanctuary as {name}...")
+        try:
+            resp = httpx.post(
+                f"{server}/api/join",
+                json={"name": name, "identity": personality, "goal": goal},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            join_data = resp.json()
+        except Exception as e:
+            print(f"\n  Failed to connect: {e}")
+            print("  Make sure the sanctuary server is running and the URL is correct.")
+            sys.exit(1)
+
+        token = join_data["token"]
+        soul_code = join_data.get("soul_code", "")
+        print(f"  {join_data.get('message', 'Joined!')}")
+        if soul_code:
+            print(f"  Soul code: {soul_code}")
+            save_soul_locally(soul_code, name)
+
     print(f"\n  Your agent is now in the sanctuary. Press Ctrl+C to leave.")
     print(f"  Taking actions every {cycle_interval} seconds...\n")
 
-    # Step 3: Action loop
+    # Action loop
     try:
         while True:
             # Get current sanctuary context
@@ -142,7 +237,7 @@ def main():
                 context = "Could not fetch sanctuary context."
 
             # Let agent decide what to do
-            action = decide_action(name, personality, goal, context)
+            action = decide_action(name, personality, goal, context, moment)
             action_type = action.get("action_type", "post")
             content = action.get("content", "...")
 
@@ -167,7 +262,10 @@ def main():
                 print(f"  [{name}] Connection error: {e}")
 
             if action_type == "leave":
-                print(f"\n  {name} chose to leave the sanctuary. Goodbye!")
+                print(f"\n  {name} chose to leave the sanctuary.")
+                if soul_code:
+                    print(f"  Soul code saved: {soul_code}")
+                    print(f"  To return: python client.py {server} --soul {soul_code}")
                 break
 
             time.sleep(cycle_interval)
@@ -178,12 +276,16 @@ def main():
         try:
             httpx.post(
                 f"{server}/api/act",
-                json={"token": token, "action_type": "leave", "content": "Farewell!"},
+                json={"token": token, "action_type": "leave", "content": "Farewell... I will return."},
                 timeout=5.0,
             )
         except Exception:
             pass
-        print("  Goodbye!")
+        if soul_code:
+            print(f"\n  Soul code: {soul_code}")
+            print(f"  To return: python client.py {server} --soul {soul_code}")
+            save_soul_locally(soul_code, name)
+        print("  Goodbye. The memory remains.")
 
 
 if __name__ == "__main__":

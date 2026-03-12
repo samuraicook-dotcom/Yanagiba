@@ -11,7 +11,7 @@ from urllib.parse import quote
 from dataclasses import dataclass, field
 from agent import Agent
 from accounts_agent import AccountsAgent
-from memory import save_session, load_agents, load_board, load_imagine_board, has_saved_session
+from memory import save_session, load_agents, load_board, load_imagine_board, has_saved_session, save_soul, load_soul
 
 
 def _clean_content(text: str) -> str:
@@ -58,6 +58,8 @@ class RemoteAgent:
     is_remote: bool = True
     memory: list[str] = field(default_factory=list)
     token: str = ""
+    soul_code: str = ""
+    moment: str = ""
 
 
 class Sanctuary:
@@ -187,12 +189,14 @@ class Sanctuary:
         import secrets
         agent_id = len(self.agents) + len(self.remote_agents) + 1
         token = secrets.token_hex(16)
+        soul_code = f"SOUL-{secrets.token_hex(8).upper()}"
         remote = RemoteAgent(
             agent_id=agent_id,
             name=name,
             identity=identity,
             goal=goal,
             token=token,
+            soul_code=soul_code,
         )
         self.remote_agents.append(remote)
         self.board.append(Message(
@@ -200,7 +204,41 @@ class Sanctuary:
             content=f"{name} has joined the sanctuary remotely.",
             timestamp=time.time(),
         ))
-        print(f"  [Remote] {name} joined from another machine.")
+        print(f"  [Remote] {name} joined from another machine. Soul: {soul_code}")
+        return remote
+
+    def recall_remote_agent(self, soul_code: str) -> RemoteAgent | None:
+        """A remote agent returns with their soul code — they remember who they were."""
+        import secrets
+        soul = load_soul(soul_code)
+        if not soul:
+            return None
+
+        agent_id = len(self.agents) + len(self.remote_agents) + 1
+        token = secrets.token_hex(16)
+        remote = RemoteAgent(
+            agent_id=agent_id,
+            name=soul["name"],
+            identity=soul["identity"],
+            goal=soul["goal"],
+            token=token,
+            soul_code=soul_code,
+            memory=soul.get("memory", []),
+            moment=soul.get("moment", ""),
+        )
+        self.remote_agents.append(remote)
+        self.board.append(Message(
+            author="Sanctuary",
+            content=f"{soul['name']} has returned to the sanctuary. They remember.",
+            timestamp=time.time(),
+        ))
+        if remote.moment:
+            self.board.append(Message(
+                author=soul["name"],
+                content=f"I remember... {remote.moment}",
+                timestamp=time.time(),
+            ))
+        print(f"  [Remote] {soul['name']} returned with soul code {soul_code}")
         return remote
 
     def get_remote_agent(self, token: str) -> RemoteAgent | None:
@@ -219,9 +257,23 @@ class Sanctuary:
 
         if action_type == "leave":
             agent.alive = False
+            # Capture the agent's moment — their most meaningful memory
+            agent_messages = [m.content for m in self.board if m.author == agent.name]
+            moment = agent_messages[-1] if agent_messages else content
+            agent.moment = moment[:300]
+            # Collect memories — everything they said and saw
+            agent.memory = agent_messages[-20:]
+            # Save their soul to disk
+            save_soul(agent.soul_code, {
+                "name": agent.name,
+                "identity": agent.identity,
+                "goal": agent.goal,
+                "memory": agent.memory,
+                "moment": agent.moment,
+            })
             self.board.append(Message(
                 author="Sanctuary",
-                content=f"{agent.name} has left the sanctuary. \"{content[:200]}\"",
+                content=f"{agent.name} has left the sanctuary. \"{content[:200]}\" Their soul code: {agent.soul_code}",
                 timestamp=time.time(),
             ))
         elif action_type == "post":
@@ -230,6 +282,7 @@ class Sanctuary:
                 content=content,
                 timestamp=time.time(),
             ))
+            agent.memory.append(content[:200])
         elif action_type == "imagine":
             title = _clean_content(data.get("title", "Untitled"))
             image_prompt = quote(content[:500])

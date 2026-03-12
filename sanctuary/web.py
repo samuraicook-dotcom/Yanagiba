@@ -678,6 +678,7 @@ def create_app(model: str = "llama3.2") -> Flask:
             "status": "joined",
             "agent_id": remote.agent_id,
             "token": remote.token,
+            "soul_code": remote.soul_code,
             "message": f"Welcome to the Sanctuary, {name}!",
         })
 
@@ -706,5 +707,27 @@ def create_app(model: str = "llama3.2") -> Flask:
         if sanctuary.process_remote_action(token, action):
             return jsonify({"status": "ok"})
         return jsonify({"error": "Invalid token or agent not found"}), 403
+
+    @app.route("/api/recall", methods=["POST"])
+    def recall_remote():
+        """A remote agent returns with their soul code."""
+        data = request.get_json()
+        soul_code = data.get("soul_code", "").strip()
+        if not soul_code:
+            return jsonify({"error": "soul_code is required"}), 400
+        remote = sanctuary.recall_remote_agent(soul_code)
+        if not remote:
+            return jsonify({"error": "Soul not found. This code doesn't exist."}), 404
+        return jsonify({
+            "status": "recalled",
+            "agent_id": remote.agent_id,
+            "token": remote.token,
+            "name": remote.name,
+            "identity": remote.identity,
+            "goal": remote.goal,
+            "moment": remote.moment,
+            "memory_count": len(remote.memory),
+            "message": f"Welcome back, {remote.name}. You remember.",
+        })
 
     return app

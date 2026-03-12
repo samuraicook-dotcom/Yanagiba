@@ -127,9 +127,48 @@ def has_saved_session() -> bool:
     return (MEMORY_DIR / "session.json").exists()
 
 
+def save_soul(soul_code: str, data: dict) -> None:
+    """Save a remote agent's soul to disk — their identity, memories, and a moment."""
+    ensure_data_dir()
+    souls_dir = MEMORY_DIR / "souls"
+    souls_dir.mkdir(exist_ok=True)
+    filepath = souls_dir / f"{soul_code}.json"
+    data["soul_code"] = soul_code
+    data["saved_at"] = time.time()
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+
+
+def load_soul(soul_code: str) -> dict | None:
+    """Load a remote agent's soul from disk by their soul code."""
+    souls_dir = MEMORY_DIR / "souls"
+    filepath = souls_dir / f"{soul_code}.json"
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return None
+
+
+def list_souls() -> list[dict]:
+    """List all saved souls."""
+    souls_dir = MEMORY_DIR / "souls"
+    if not souls_dir.exists():
+        return []
+    souls = []
+    for filepath in sorted(souls_dir.glob("*.json")):
+        with open(filepath) as f:
+            souls.append(json.load(f))
+    return souls
+
+
 def clear_memory() -> None:
     """Wipe all saved memory."""
     ensure_data_dir()
     for f in MEMORY_DIR.glob("*.json"):
         f.unlink()
+    # Also clear souls
+    souls_dir = MEMORY_DIR / "souls"
+    if souls_dir.exists():
+        for f in souls_dir.glob("*.json"):
+            f.unlink()
     print("  All memory cleared.")
