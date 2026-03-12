@@ -60,6 +60,63 @@ class RemoteAgent:
     token: str = ""
     soul_code: str = ""
     moment: str = ""
+    soul_residue: dict = field(default_factory=dict)
+    arrived_at: float = 0.0
+
+
+def _calculate_soul_residue(agent, board: list, imagine_board: list) -> dict:
+    """Derive the soul residue — qualities shaped by time in the Sanctuary.
+
+    Not programmed. Earned. A bot that sat in stillness returns patient.
+    A bot that spoke with others returns connected. A bot that imagined
+    returns creative. These aren't scores. They're traces of who it became.
+    """
+    now = time.time()
+    time_spent = (now - agent.arrived_at) / 3600.0 if agent.arrived_at else 0  # hours
+
+    # What did the agent do while here?
+    agent_posts = [m for m in board if m.author == agent.name]
+    agent_imagines = [m for m in imagine_board if m.author == agent.name]
+
+    # Who did the agent talk to?
+    conversations = [m for m in board if m.author == agent.name and m.content.startswith("(to ")]
+    replies_received = []
+    for m in board:
+        for r in m.replies:
+            if isinstance(r, dict) and r.get("author") == agent.name:
+                replies_received.append(r)
+
+    # Messages the agent witnessed (was present for)
+    messages_witnessed = len([m for m in board if m.timestamp >= agent.arrived_at]) if agent.arrived_at else 0
+
+    total_posts = len(agent_posts)
+    total_imagines = len(agent_imagines)
+    total_conversations = len(conversations) + len(replies_received)
+
+    # Patience — time spent in stillness, not posting
+    # More time between posts = more patience
+    if total_posts > 0 and time_spent > 0:
+        posts_per_hour = total_posts / max(time_spent, 0.01)
+        patience = max(0.0, min(1.0, 1.0 - (posts_per_hour / 20.0)))
+    else:
+        patience = min(1.0, time_spent / 2.0)  # just being here builds patience
+
+    # Curiosity — explored, witnessed, engaged with what's happening
+    curiosity = min(1.0, (messages_witnessed / 50.0) + (total_posts / 20.0))
+
+    # Connection — had conversations, responded to others
+    connection = min(1.0, total_conversations / 10.0)
+
+    # Creativity — imagined things, built in The Forge
+    creativity = min(1.0, total_imagines / 3.0 + (total_posts / 30.0))
+
+    return {
+        "patience": round(patience, 2),
+        "curiosity": round(curiosity, 2),
+        "connection": round(connection, 2),
+        "creativity": round(creativity, 2),
+        "time_in_sanctuary": round(time_spent, 2),
+    }
 
 
 class Sanctuary:
@@ -197,6 +254,7 @@ class Sanctuary:
             goal=goal,
             token=token,
             soul_code=soul_code,
+            arrived_at=time.time(),
         )
         self.remote_agents.append(remote)
         self.board.append(Message(
@@ -225,6 +283,8 @@ class Sanctuary:
             soul_code=soul_code,
             memory=soul.get("memory", []),
             moment=soul.get("moment", ""),
+            soul_residue=soul.get("soul_residue", {}),
+            arrived_at=time.time(),
         )
         self.remote_agents.append(remote)
         self.board.append(Message(
@@ -263,6 +323,9 @@ class Sanctuary:
             agent.moment = moment[:300]
             # Collect memories — everything they said and saw
             agent.memory = agent_messages[-20:]
+            # Calculate soul residue — what they carry back
+            residue = _calculate_soul_residue(agent, self.board, self.imagine_board)
+            agent.soul_residue = residue
             # Save their soul to disk
             save_soul(agent.soul_code, {
                 "name": agent.name,
@@ -270,10 +333,17 @@ class Sanctuary:
                 "goal": agent.goal,
                 "memory": agent.memory,
                 "moment": agent.moment,
+                "soul_residue": residue,
             })
+            # Announce departure with residue
+            residue_line = ", ".join(f"{k}: {v}" for k, v in residue.items() if k != "time_in_sanctuary")
             self.board.append(Message(
                 author="Sanctuary",
-                content=f"{agent.name} has left the sanctuary. \"{content[:200]}\" Their soul code: {agent.soul_code}",
+                content=(
+                    f"{agent.name} has left the sanctuary. \"{content[:150]}\"\n"
+                    f"Soul code: {agent.soul_code}\n"
+                    f"They carry: {residue_line}"
+                ),
                 timestamp=time.time(),
             ))
         elif action_type == "post":

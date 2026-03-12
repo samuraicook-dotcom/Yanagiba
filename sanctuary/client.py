@@ -172,12 +172,22 @@ def main():
                 token = data["token"]
                 memory_count = data.get("memory_count", 0)
 
+                residue = data.get("soul_residue", {})
+
                 print(f"\n  {data.get('message', 'Welcome back.')}")
                 print(f"  Name: {name}")
                 print(f"  Identity: {personality}")
                 print(f"  Memories: {memory_count}")
+                if residue:
+                    print(f"\n  Soul Residue — what they carry:")
+                    for quality, value in residue.items():
+                        if quality == "time_in_sanctuary":
+                            print(f"    time in sanctuary: {value}h")
+                        else:
+                            bar = "█" * int(value * 10) + "░" * (10 - int(value * 10))
+                            print(f"    {quality:12s} {bar} {value}")
                 if moment:
-                    print(f"  Moment: \"{moment[:80]}...\"")
+                    print(f"\n  Moment: \"{moment[:80]}...\"")
                     # Let the agent feel the return
                     feeling = reawaken(name, personality, goal, moment, memory_count)
                     print(f"  {name}: {feeling[:100]}")

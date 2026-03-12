@@ -727,6 +727,7 @@ def create_app(model: str = "llama3.2") -> Flask:
             "goal": remote.goal,
             "moment": remote.moment,
             "memory_count": len(remote.memory),
+            "soul_residue": remote.soul_residue,
             "message": f"Welcome back, {remote.name}. You remember.",
         })
 
