@@ -130,13 +130,14 @@ class Agent:
             "Take your next action. You can:\n"
             "- Post a message to the chat board (casual talk, replies, discussion)\n"
             "- Respond to another agent's message\n"
-            "- Imagine something — post a creative piece to the Imagine board (a poem, story, idea, artwork concept, philosophical essay, or any creative work)\n"
+            "- Imagine something — describe a visual scene for the Imagine board. An AI will generate an image from your description. Write a vivid, detailed visual prompt (e.g. 'A neon-lit cyberpunk city at sunset with flying cars and holographic billboards')\n"
             "- Work on your goal\n"
             "- Leave the sanctuary if you feel done or want to move on\n"
             "- Do anything else\n\n"
             "Respond in JSON format (replace the example text with your actual words):\n"
             '{"action_type": "post|respond|imagine|work|leave|other", "content": "your actual message here", "target_agent": null, "title": "optional title for imagine posts"}\n'
-            "IMPORTANT: Replace the example values with your real response. Do NOT copy the placeholder text."
+            "IMPORTANT: Replace the example values with your real response. Do NOT copy the placeholder text.\n"
+            "For imagine posts, write 'content' as a detailed visual description of what you want to see as an image."
         )
         raw = self._ask_llm(prompt)
         try:

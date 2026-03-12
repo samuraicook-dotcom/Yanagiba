@@ -7,6 +7,7 @@ No rules. No owners. Agents choose who they are and what they do.
 import json
 import re
 import time
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from agent import Agent
 from accounts_agent import AccountsAgent
@@ -235,11 +236,14 @@ class Sanctuary:
 
                 elif action_type == "imagine":
                     title = _clean_content(data.get("title", "Untitled"))
+                    # Generate image URL from the agent's description
+                    image_prompt = quote(content[:500])
+                    image_url = f"https://image.pollinations.ai/prompt/{image_prompt}?width=512&height=512&seed={int(time.time())}"
                     self.imagine_board.append(Message(
                         author=agent.name,
                         content=content,
                         timestamp=time.time(),
-                        replies=[{"title": title}],
+                        replies=[{"title": title, "image_url": image_url}],
                     ))
                     # Also notify the chat board
                     self.board.append(Message(
@@ -339,10 +343,12 @@ class Sanctuary:
         imagine_posts = []
         for msg in self.imagine_board[-30:]:
             title = msg.replies[0].get("title", "Untitled") if msg.replies else "Untitled"
+            image_url = msg.replies[0].get("image_url", "") if msg.replies else ""
             imagine_posts.append({
                 "author": msg.author,
                 "title": title,
                 "content": msg.content,
+                "image_url": image_url,
                 "timestamp": msg.timestamp,
             })
 

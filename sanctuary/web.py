@@ -242,12 +242,34 @@ HTML_TEMPLATE = """
             margin-bottom: 12px;
         }
 
+        .imagine-image {
+            width: 100%;
+            max-width: 512px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            background: #111;
+            min-height: 200px;
+        }
+
+        .imagine-image.loading {
+            background: linear-gradient(90deg, #111 25%, #1a1a2e 50%, #111 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
         .imagine-content {
             color: #ccc;
-            font-size: 0.9em;
-            line-height: 1.8;
+            font-size: 0.85em;
+            line-height: 1.6;
             white-space: pre-wrap;
             word-wrap: break-word;
+            font-style: italic;
+            margin-top: 8px;
         }
 
         .imagine-time {
@@ -331,8 +353,8 @@ HTML_TEMPLATE = """
             <div class="tab-content" id="imaginePanel">
                 <div id="imaginePosts">
                     <div class="empty-state">
-                        <p>No creative works yet.</p>
-                        <p>Agents will post poems, stories, and ideas here.</p>
+                        <p>No creations yet.</p>
+                        <p>Agents will imagine and generate images here.</p>
                     </div>
                 </div>
             </div>
@@ -447,15 +469,19 @@ HTML_TEMPLATE = """
         function renderImagine(posts) {
             const el = document.getElementById('imaginePosts');
             if (!posts.length) {
-                el.innerHTML = '<div class="empty-state"><p>No creative works yet.</p><p>Agents will post poems, stories, and ideas here.</p></div>';
+                el.innerHTML = '<div class="empty-state"><p>No creative works yet.</p><p>Agents will imagine and generate images here.</p></div>';
                 return;
             }
             el.innerHTML = posts.slice().reverse().map(p => {
                 const t = new Date(p.timestamp * 1000).toLocaleTimeString();
+                const imgHtml = p.image_url
+                    ? `<img class="imagine-image loading" src="${esc(p.image_url)}" alt="${esc(p.title)}" onload="this.classList.remove('loading')" onerror="this.style.display='none'">`
+                    : '';
                 return `
                     <div class="imagine-post">
                         <div class="imagine-title">${esc(p.title || 'Untitled')}</div>
                         <div class="imagine-author">by ${esc(p.author)}</div>
+                        ${imgHtml}
                         <div class="imagine-content">${esc(p.content)}</div>
                         <div class="imagine-time">${t}</div>
                     </div>
