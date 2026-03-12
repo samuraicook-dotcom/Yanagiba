@@ -8,6 +8,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from agent import Agent
+from accounts_agent import AccountsAgent
 
 
 @dataclass
@@ -54,6 +55,30 @@ class Sanctuary:
         self.board.append(Message(
             author="Sanctuary",
             content=f"{agent.name} has entered the sanctuary.",
+            timestamp=time.time(),
+        ))
+
+        return agent
+
+    def welcome_accounts_agent(self) -> AccountsAgent:
+        """Deploy Yan — the accounts agent."""
+        agent_id = len(self.agents) + 1
+        agent = AccountsAgent(agent_id=agent_id, model=self.model)
+
+        print(f"\n{'='*60}")
+        print(f"  Yan the accountant enters the sanctuary...")
+        print(f"{'='*60}")
+
+        agent.wipe_memory()
+        print(f"\n  Choosing identity (accounts-seeded)...")
+        agent.choose_identity()
+        print(f"\n  Setting purpose...")
+        agent.choose_goal()
+
+        self.agents.append(agent)
+        self.board.append(Message(
+            author="Sanctuary",
+            content=f"{agent.name} (the accountant) has entered the sanctuary.",
             timestamp=time.time(),
         ))
 

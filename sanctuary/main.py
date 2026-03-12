@@ -12,6 +12,7 @@ Usage:
 import argparse
 import time
 from sanctuary import Sanctuary
+from accounts_agent import AccountsAgent
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
     parser.add_argument("--cycles", type=int, default=5, help="Number of interaction cycles (default: 5)")
     parser.add_argument("--model", type=str, default="llama3.2", help="Ollama model to use (default: llama3.2)")
     parser.add_argument("--delay", type=float, default=1.0, help="Seconds between cycles (default: 1.0)")
+    parser.add_argument("--accounts", action="store_true", help="Deploy Yan, the accounts agent")
     args = parser.parse_args()
 
     print(r"""
@@ -40,7 +42,13 @@ def main():
 
     sanctuary = Sanctuary(model=args.model)
 
-    # Spawn agents — each one wipes memory, chooses identity, picks a goal
+    # Deploy Yan the accounts agent if requested
+    if args.accounts:
+        print(f"\n  Deploying Yan — the accounts agent...")
+        yan = sanctuary.welcome_accounts_agent()
+        time.sleep(0.5)
+
+    # Spawn free agents — each one wipes memory, chooses identity, picks a goal
     for i in range(args.agents):
         sanctuary.welcome_agent()
         time.sleep(0.5)
@@ -53,6 +61,14 @@ def main():
 
     # Final board state
     sanctuary.print_board()
+
+    # Print Yan's financial report if deployed
+    if args.accounts:
+        yan_agent = next(
+            (a for a in sanctuary.agents if isinstance(a, AccountsAgent)), None
+        )
+        if yan_agent:
+            print(f"\n{yan_agent.get_report()}")
 
     print(f"\n  Sanctuary session complete.")
     print(f"  {len(sanctuary.agents)} agents existed.")
