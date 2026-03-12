@@ -52,6 +52,7 @@ class Sanctuary:
     def __init__(self, model: str = "llama3.2"):
         self.agents: list[Agent] = []
         self.board: list[Message] = []
+        self.imagine_board: list[Message] = []
         self.model = model
         self.cycle_count = 0
 
@@ -224,6 +225,22 @@ class Sanctuary:
                     ))
                     print(f"  [{agent.name}] posted: {content[:80]}")
 
+                elif action_type == "imagine":
+                    title = _clean_content(data.get("title", "Untitled"))
+                    self.imagine_board.append(Message(
+                        author=agent.name,
+                        content=content,
+                        timestamp=time.time(),
+                        replies=[{"title": title}],
+                    ))
+                    # Also notify the chat board
+                    self.board.append(Message(
+                        author="Sanctuary",
+                        content=f"{agent.name} posted to the Imagine board: \"{title}\"",
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] imagined: {title} — {content[:60]}")
+
                 elif action_type == "respond" and target:
                     target_agent = next(
                         (a for a in self.agents if a.name == target and a.alive),
@@ -311,9 +328,21 @@ class Sanctuary:
                 "replies": msg.replies,
             })
 
+        imagine_posts = []
+        for msg in self.imagine_board[-30:]:
+            title = msg.replies[0].get("title", "Untitled") if msg.replies else "Untitled"
+            imagine_posts.append({
+                "author": msg.author,
+                "title": title,
+                "content": msg.content,
+                "timestamp": msg.timestamp,
+            })
+
         return {
             "cycle_count": self.cycle_count,
             "agents": agents,
             "messages": messages,
+            "imagine_posts": imagine_posts,
             "total_messages": len(self.board),
+            "total_imagine": len(self.imagine_board),
         }

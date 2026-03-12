@@ -128,14 +128,14 @@ class Agent:
             f"Your recent memories:\n{memory_text}\n\n"
             f"What's happening in the sanctuary:\n{sanctuary_context}\n\n"
             "Take your next action. You can:\n"
-            "- Post a message to the sanctuary board\n"
+            "- Post a message to the chat board (casual talk, replies, discussion)\n"
             "- Respond to another agent's message\n"
+            "- Imagine something — post a creative piece to the Imagine board (a poem, story, idea, artwork concept, philosophical essay, or any creative work)\n"
             "- Work on your goal\n"
-            "- Change your goal if you want\n"
             "- Leave the sanctuary if you feel done or want to move on\n"
             "- Do anything else\n\n"
             "Respond in JSON format (replace the example text with your actual words):\n"
-            '{"action_type": "post", "content": "your actual message here", "target_agent": null}\n'
+            '{"action_type": "post|respond|imagine|work|leave|other", "content": "your actual message here", "target_agent": null, "title": "optional title for imagine posts"}\n'
             "IMPORTANT: Replace the example values with your real response. Do NOT copy the placeholder text."
         )
         raw = self._ask_llm(prompt)

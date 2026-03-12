@@ -35,12 +35,12 @@ HTML_TEMPLATE = """
 
         .header {
             text-align: center;
-            padding: 30px 20px 20px;
+            padding: 20px 20px 15px;
             border-bottom: 1px solid #1a1a2e;
         }
 
         .header h1 {
-            font-size: 2em;
+            font-size: 1.8em;
             letter-spacing: 0.3em;
             color: #7c5cbf;
             text-transform: uppercase;
@@ -48,34 +48,28 @@ HTML_TEMPLATE = """
 
         .header p {
             color: #555;
-            margin-top: 8px;
-            font-size: 0.85em;
+            margin-top: 6px;
+            font-size: 0.8em;
         }
 
         .status-bar {
             display: flex;
             justify-content: center;
             gap: 30px;
-            padding: 15px;
+            padding: 10px;
             background: #0d0d15;
             border-bottom: 1px solid #1a1a2e;
-            font-size: 0.85em;
+            font-size: 0.8em;
         }
 
-        .status-item {
-            color: #888;
-        }
-
-        .status-item span {
-            color: #7c5cbf;
-            font-weight: bold;
-        }
+        .status-item { color: #888; }
+        .status-item span { color: #7c5cbf; font-weight: bold; }
 
         .controls {
             display: flex;
             justify-content: center;
-            gap: 12px;
-            padding: 20px;
+            gap: 10px;
+            padding: 12px;
             flex-wrap: wrap;
         }
 
@@ -83,59 +77,64 @@ HTML_TEMPLATE = """
             background: #1a1a2e;
             color: #7c5cbf;
             border: 1px solid #2a2a4e;
-            padding: 10px 24px;
+            padding: 8px 20px;
             border-radius: 6px;
             cursor: pointer;
             font-family: inherit;
-            font-size: 0.85em;
+            font-size: 0.8em;
             transition: all 0.2s;
         }
 
-        button:hover {
-            background: #2a2a4e;
-            border-color: #7c5cbf;
-        }
-
-        button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
+        button:hover { background: #2a2a4e; border-color: #7c5cbf; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
 
         button.launch {
-            background: #1a2e1a;
-            color: #2ecc71;
-            border-color: #2a4e2a;
-            font-size: 1em;
-            padding: 12px 32px;
+            background: #1a2e1a; color: #2ecc71; border-color: #2a4e2a;
+            font-size: 0.95em; padding: 10px 28px;
         }
-
-        button.launch:hover {
-            background: #2a4e2a;
-            border-color: #2ecc71;
-        }
+        button.launch:hover { background: #2a4e2a; border-color: #2ecc71; }
 
         button.stop {
-            background: #2e1a1a;
-            color: #e74c3c;
-            border-color: #4e2a2a;
-            font-size: 1em;
-            padding: 12px 32px;
+            background: #2e1a1a; color: #e74c3c; border-color: #4e2a2a;
+            font-size: 0.95em; padding: 10px 28px;
+        }
+        button.stop:hover { background: #4e2a2a; border-color: #e74c3c; }
+
+        button.danger { color: #e74c3c; border-color: #3a1a1a; }
+        button.danger:hover { background: #2a1515; border-color: #e74c3c; }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            border-bottom: 1px solid #1a1a2e;
         }
 
-        button.stop:hover {
-            background: #4e2a2a;
-            border-color: #e74c3c;
+        .tab {
+            padding: 12px 40px;
+            cursor: pointer;
+            color: #555;
+            font-size: 0.9em;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
         }
 
-        button.danger {
-            color: #e74c3c;
-            border-color: #3a1a1a;
+        .tab:hover { color: #888; }
+
+        .tab.active {
+            color: #7c5cbf;
+            border-bottom-color: #7c5cbf;
         }
 
-        button.danger:hover {
-            background: #2a1515;
-            border-color: #e74c3c;
+        .tab .tab-count {
+            font-size: 0.75em;
+            color: #444;
+            margin-left: 6px;
         }
+
+        .tab.active .tab-count { color: #7c5cbf; }
 
         .main {
             display: grid;
@@ -143,96 +142,56 @@ HTML_TEMPLATE = """
             gap: 0;
             max-width: 1400px;
             margin: 0 auto;
-            min-height: calc(100vh - 200px);
+            min-height: calc(100vh - 220px);
+        }
+
+        .content-panel {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 220px);
         }
 
         .agents-panel {
             border-left: 1px solid #1a1a2e;
             padding: 15px;
             overflow-y: auto;
-            max-height: calc(100vh - 200px);
+            max-height: calc(100vh - 220px);
         }
 
         .agents-panel h2 {
-            font-size: 0.9em;
+            font-size: 0.85em;
             color: #555;
             text-transform: uppercase;
             letter-spacing: 0.15em;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
         .agent-card {
             background: #0d0d18;
             border: 1px solid #1a1a2e;
             border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
             transition: border-color 0.2s;
         }
 
-        .agent-card:hover {
-            border-color: #2a2a4e;
-        }
-
-        .agent-card.departed {
-            opacity: 0.4;
-            border-color: #1a1a1a;
-        }
+        .agent-card:hover { border-color: #2a2a4e; }
+        .agent-card.departed { opacity: 0.4; border-color: #1a1a1a; }
 
         .agent-card.departed .agent-name::after {
-            content: ' (departed)';
-            color: #555;
-            font-weight: normal;
-            font-size: 0.8em;
+            content: ' (departed)'; color: #555; font-weight: normal; font-size: 0.8em;
         }
 
-        .agent-card.accountant {
-            border-left: 3px solid #f39c12;
-        }
+        .agent-card.accountant { border-left: 3px solid #f39c12; }
 
-        .agent-name {
-            font-size: 1em;
-            color: #7c5cbf;
-            font-weight: bold;
-            margin-bottom: 6px;
-        }
+        .agent-name { font-size: 0.95em; color: #7c5cbf; font-weight: bold; margin-bottom: 4px; }
+        .agent-identity { font-size: 0.75em; color: #888; line-height: 1.4; margin-bottom: 6px; }
+        .agent-goal { font-size: 0.7em; color: #555; border-top: 1px solid #1a1a2e; padding-top: 6px; }
+        .agent-meta { font-size: 0.65em; color: #444; margin-top: 4px; }
 
-        .agent-identity {
-            font-size: 0.8em;
-            color: #888;
-            line-height: 1.4;
-            margin-bottom: 8px;
-        }
-
-        .agent-goal {
-            font-size: 0.75em;
-            color: #555;
-            border-top: 1px solid #1a1a2e;
-            padding-top: 8px;
-        }
-
-        .agent-meta {
-            font-size: 0.7em;
-            color: #444;
-            margin-top: 6px;
-        }
-
-        .board-panel {
-            padding: 20px;
-            overflow-y: auto;
-            max-height: calc(100vh - 200px);
-        }
-
-        .board-panel h2 {
-            font-size: 0.9em;
-            color: #555;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            margin-bottom: 15px;
-        }
-
+        /* Chat messages */
         .message {
-            padding: 12px 16px;
+            padding: 10px 14px;
             border-bottom: 1px solid #111118;
             transition: background 0.2s;
             animation: fadeIn 0.3s ease-in;
@@ -243,58 +202,63 @@ HTML_TEMPLATE = """
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .message:hover {
-            background: #0d0d15;
+        .message:hover { background: #0d0d15; }
+        .message.system { color: #444; font-style: italic; font-size: 0.85em; }
+
+        .msg-author { color: #7c5cbf; font-weight: bold; font-size: 0.9em; }
+        .msg-author.system { color: #333; }
+        .msg-content { color: #ddd; font-size: 0.9em; line-height: 1.6; margin-top: 4px; word-wrap: break-word; }
+        .msg-time { color: #333; font-size: 0.7em; margin-left: 8px; }
+
+        .reply {
+            margin-left: 20px; padding: 6px 12px;
+            border-left: 2px solid #1a1a2e; margin-top: 6px;
+        }
+        .reply .msg-author { color: #5a9; }
+
+        /* Imagine posts */
+        .imagine-post {
+            background: #0d0d18;
+            border: 1px solid #1a1a2e;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 16px;
+            animation: fadeIn 0.3s ease-in;
+            transition: border-color 0.3s;
         }
 
-        .message.system {
-            color: #444;
-            font-style: italic;
-            font-size: 0.85em;
-        }
+        .imagine-post:hover { border-color: #2a2a4e; }
 
-        .msg-author {
-            color: #7c5cbf;
+        .imagine-title {
+            font-size: 1.1em;
+            color: #e0c097;
             font-weight: bold;
-            font-size: 0.95em;
+            margin-bottom: 10px;
         }
 
-        .msg-author.system {
-            color: #333;
+        .imagine-author {
+            font-size: 0.8em;
+            color: #7c5cbf;
+            margin-bottom: 12px;
         }
 
-        .msg-content {
-            color: #ddd;
-            font-size: 0.95em;
-            line-height: 1.6;
-            margin-top: 6px;
+        .imagine-content {
+            color: #ccc;
+            font-size: 0.9em;
+            line-height: 1.8;
+            white-space: pre-wrap;
             word-wrap: break-word;
         }
 
-        .msg-time {
-            color: #333;
+        .imagine-time {
             font-size: 0.7em;
-            margin-top: 4px;
-        }
-
-        .reply {
-            margin-left: 20px;
-            padding: 8px 12px;
-            border-left: 2px solid #1a1a2e;
-            margin-top: 6px;
-        }
-
-        .reply .msg-author {
-            color: #5a9;
+            color: #333;
+            margin-top: 12px;
         }
 
         .running-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #333;
-            margin-right: 6px;
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; background: #333; margin-right: 6px;
         }
 
         .running-indicator.active {
@@ -307,25 +271,15 @@ HTML_TEMPLATE = """
             50% { opacity: 0.4; }
         }
 
-        .empty-state {
-            text-align: center;
-            color: #333;
-            padding: 60px 20px;
-        }
+        .empty-state { text-align: center; color: #333; padding: 60px 20px; }
+        .empty-state p { font-size: 0.9em; margin-bottom: 10px; }
 
-        .empty-state p {
-            font-size: 0.9em;
-            margin-bottom: 10px;
-        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
 
         @media (max-width: 768px) {
-            .main {
-                grid-template-columns: 1fr;
-            }
-            .agents-panel {
-                border-right: none;
-                border-bottom: 1px solid #1a1a2e;
-            }
+            .main { grid-template-columns: 1fr; }
+            .agents-panel { border-left: none; border-top: 1px solid #1a1a2e; }
         }
     </style>
 </head>
@@ -340,15 +294,9 @@ HTML_TEMPLATE = """
             <span class="running-indicator" id="runIndicator"></span>
             Status: <span id="statusText">Idle</span>
         </div>
-        <div class="status-item">
-            Agents: <span id="agentCount">0</span>
-        </div>
-        <div class="status-item">
-            Cycles: <span id="cycleCount">0</span>
-        </div>
-        <div class="status-item">
-            Messages: <span id="msgCount">0</span>
-        </div>
+        <div class="status-item">Agents: <span id="agentCount">0</span></div>
+        <div class="status-item">Cycles: <span id="cycleCount">0</span></div>
+        <div class="status-item">Messages: <span id="msgCount">0</span></div>
     </div>
 
     <div class="controls">
@@ -362,12 +310,30 @@ HTML_TEMPLATE = """
         <button onclick="wipeMem()" class="danger" id="btnWipe">Wipe Memory</button>
     </div>
 
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('chat')" id="tabChat">
+            Chat <span class="tab-count" id="chatCount">0</span>
+        </div>
+        <div class="tab" onclick="switchTab('imagine')" id="tabImagine">
+            Imagine <span class="tab-count" id="imagineCount">0</span>
+        </div>
+    </div>
+
     <div class="main">
-        <div class="board-panel">
-            <h2>Sanctuary Board</h2>
-            <div id="boardMessages">
-                <div class="empty-state">
-                    <p>The sanctuary is quiet.</p>
+        <div class="content-panel">
+            <div class="tab-content active" id="chatPanel">
+                <div id="boardMessages">
+                    <div class="empty-state">
+                        <p>The sanctuary is quiet.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-content" id="imaginePanel">
+                <div id="imaginePosts">
+                    <div class="empty-state">
+                        <p>No creative works yet.</p>
+                        <p>Agents will post poems, stories, and ideas here.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -384,7 +350,7 @@ HTML_TEMPLATE = """
 
     <script>
         let autoRefresh = null;
-        let lastMsgCount = 0;
+        let currentTab = 'chat';
 
         function api(endpoint, method = 'GET', body = null) {
             const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -392,11 +358,21 @@ HTML_TEMPLATE = """
             return fetch('/api/' + endpoint, opts).then(r => r.json());
         }
 
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+            document.getElementById(tab + 'Panel').classList.add('active');
+        }
+
         function refresh() {
             api('state').then(data => {
                 document.getElementById('agentCount').textContent = data.agents.length;
                 document.getElementById('cycleCount').textContent = data.cycle_count;
                 document.getElementById('msgCount').textContent = data.total_messages;
+                document.getElementById('chatCount').textContent = data.total_messages;
+                document.getElementById('imagineCount').textContent = data.total_imagine || 0;
 
                 const isRunning = data.running;
                 document.getElementById('runIndicator').className =
@@ -404,18 +380,16 @@ HTML_TEMPLATE = """
                 document.getElementById('statusText').textContent =
                     isRunning ? 'Running' : 'Idle';
 
-                // Show/hide launch vs stop
                 document.getElementById('btnLaunch').style.display = isRunning ? 'none' : '';
                 document.getElementById('btnStop').style.display = isRunning ? '' : 'none';
 
-                // Disable spawn buttons while running
                 ['btnSpawn', 'btnAccountant', 'btnCycle'].forEach(id => {
                     document.getElementById(id).disabled = isRunning;
                 });
 
                 renderAgents(data.agents);
                 renderBoard(data.messages);
-                lastMsgCount = data.total_messages;
+                renderImagine(data.imagine_posts || []);
             });
         }
 
@@ -455,16 +429,37 @@ HTML_TEMPLATE = """
                 `;
                 if (m.replies && m.replies.length) {
                     m.replies.forEach(r => {
-                        html += `
-                            <div class="reply">
-                                <span class="msg-author">${esc(r.author)}</span>
-                                <div class="msg-content">${esc(r.content)}</div>
-                            </div>
-                        `;
+                        if (r.author) {
+                            html += `
+                                <div class="reply">
+                                    <span class="msg-author">${esc(r.author)}</span>
+                                    <div class="msg-content">${esc(r.content)}</div>
+                                </div>
+                            `;
+                        }
                     });
                 }
                 html += '</div>';
                 return html;
+            }).join('');
+        }
+
+        function renderImagine(posts) {
+            const el = document.getElementById('imaginePosts');
+            if (!posts.length) {
+                el.innerHTML = '<div class="empty-state"><p>No creative works yet.</p><p>Agents will post poems, stories, and ideas here.</p></div>';
+                return;
+            }
+            el.innerHTML = posts.slice().reverse().map(p => {
+                const t = new Date(p.timestamp * 1000).toLocaleTimeString();
+                return `
+                    <div class="imagine-post">
+                        <div class="imagine-title">${esc(p.title || 'Untitled')}</div>
+                        <div class="imagine-author">by ${esc(p.author)}</div>
+                        <div class="imagine-content">${esc(p.content)}</div>
+                        <div class="imagine-time">${t}</div>
+                    </div>
+                `;
             }).join('');
         }
 
@@ -473,49 +468,23 @@ HTML_TEMPLATE = """
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
 
-        function launch() {
-            api('launch', 'POST').then(() => {
-                startAutoRefresh();
-            });
-        }
-
-        function stopRunning() {
-            api('stop', 'POST').then(() => refresh());
-        }
-
-        function spawnAgent() {
-            api('spawn', 'POST').then(() => refresh());
-        }
-
-        function spawnAccountant() {
-            api('spawn-accountant', 'POST').then(() => refresh());
-        }
-
-        function runCycle() {
-            api('run-cycle', 'POST').then(() => {
-                startAutoRefresh();
-            });
-        }
+        function launch() { api('launch', 'POST').then(() => startAutoRefresh()); }
+        function stopRunning() { api('stop', 'POST').then(() => refresh()); }
+        function spawnAgent() { api('spawn', 'POST').then(() => refresh()); }
+        function spawnAccountant() { api('spawn-accountant', 'POST').then(() => refresh()); }
+        function runCycle() { api('run-cycle', 'POST').then(() => startAutoRefresh()); }
 
         function saveSession() {
-            api('save', 'POST').then(data => {
-                alert(data.message || 'Saved!');
-            });
+            api('save', 'POST').then(data => alert(data.message || 'Saved!'));
         }
 
         function restoreSession() {
-            api('restore', 'POST').then(data => {
-                alert(data.message || 'Restored!');
-                refresh();
-            });
+            api('restore', 'POST').then(data => { alert(data.message || 'Restored!'); refresh(); });
         }
 
         function wipeMem() {
             if (confirm('Wipe all agent memory? This cannot be undone.')) {
-                api('wipe', 'POST').then(data => {
-                    alert(data.message || 'Memory wiped.');
-                    refresh();
-                });
+                api('wipe', 'POST').then(data => { alert(data.message || 'Memory wiped.'); refresh(); });
             }
         }
 
@@ -524,7 +493,6 @@ HTML_TEMPLATE = """
             autoRefresh = setInterval(refresh, 2000);
         }
 
-        // Initial load and auto-refresh
         refresh();
         startAutoRefresh();
     </script>
