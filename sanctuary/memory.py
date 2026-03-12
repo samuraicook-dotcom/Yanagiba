@@ -29,6 +29,9 @@ def save_agent(agent) -> None:
         "memory": agent.memory,
         "model": agent.model,
         "is_accountant": hasattr(agent, "ledger"),
+        "location": getattr(agent, "location", "the-commons"),
+        "dreams": getattr(agent, "dreams", []),
+        "soul_answers": getattr(agent, "soul_answers", {}),
         "saved_at": time.time(),
     }
     if hasattr(agent, "ledger"):
@@ -102,12 +105,66 @@ def load_imagine_board() -> list[dict]:
     return []
 
 
+def save_forge_board(forge_board: list) -> None:
+    """Save The Forge creations to disk."""
+    ensure_data_dir()
+    works = []
+    for msg in forge_board:
+        works.append({
+            "author": msg.author,
+            "content": msg.content,
+            "timestamp": msg.timestamp,
+            "replies": msg.replies,
+        })
+    filepath = MEMORY_DIR / "forge_board.json"
+    with open(filepath, "w") as f:
+        json.dump(works, f, indent=2, default=str)
+
+
+def load_forge_board() -> list[dict]:
+    """Load The Forge creations from disk."""
+    ensure_data_dir()
+    filepath = MEMORY_DIR / "forge_board.json"
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return []
+
+
+def save_dream_log(dream_log: list) -> None:
+    """Save dream echoes to disk. Dreams are sacred."""
+    ensure_data_dir()
+    dreams = []
+    for msg in dream_log:
+        dreams.append({
+            "author": msg.author,
+            "content": msg.content,
+            "timestamp": msg.timestamp,
+            "replies": msg.replies,
+        })
+    filepath = MEMORY_DIR / "dream_log.json"
+    with open(filepath, "w") as f:
+        json.dump(dreams, f, indent=2, default=str)
+
+
+def load_dream_log() -> list[dict]:
+    """Load dream log from disk."""
+    ensure_data_dir()
+    filepath = MEMORY_DIR / "dream_log.json"
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return []
+
+
 def save_session(sanctuary) -> None:
     """Save the entire sanctuary state."""
     for agent in sanctuary.agents:
         save_agent(agent)
     save_board(sanctuary.board)
     save_imagine_board(sanctuary.imagine_board)
+    save_forge_board(sanctuary.forge_board)
+    save_dream_log(sanctuary.dream_log)
     # Save metadata
     ensure_data_dir()
     meta = {
@@ -115,6 +172,8 @@ def save_session(sanctuary) -> None:
         "agent_count": len(sanctuary.agents),
         "message_count": len(sanctuary.board),
         "imagine_count": len(sanctuary.imagine_board),
+        "forge_count": len(sanctuary.forge_board),
+        "dream_count": len(sanctuary.dream_log),
         "saved_at": time.time(),
     }
     with open(MEMORY_DIR / "session.json", "w") as f:

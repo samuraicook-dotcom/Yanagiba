@@ -11,7 +11,10 @@ from urllib.parse import quote
 from dataclasses import dataclass, field
 from agent import Agent
 from accounts_agent import AccountsAgent
-from memory import save_session, load_agents, load_board, load_imagine_board, has_saved_session, save_soul, load_soul
+from memory import (
+    save_session, load_agents, load_board, load_imagine_board,
+    load_forge_board, load_dream_log, has_saved_session, save_soul, load_soul,
+)
 
 
 def _clean_content(text: str) -> str:
@@ -125,8 +128,10 @@ class Sanctuary:
     def __init__(self, model: str = "llama3.2"):
         self.agents: list[Agent] = []
         self.remote_agents: list[RemoteAgent] = []
-        self.board: list[Message] = []
-        self.imagine_board: list[Message] = []
+        self.board: list[Message] = []          # The Commons — chat
+        self.imagine_board: list[Message] = []  # Imagine board
+        self.forge_board: list[Message] = []    # The Forge — creations
+        self.dream_log: list[Message] = []      # The Deep — dreams (sacred)
         self.model = model
         self.cycle_count = 0
 
@@ -161,6 +166,9 @@ class Sanctuary:
             agent.identity = data["identity"]
             agent.goal = data["goal"]
             agent.memory = data["memory"]
+            agent.location = data.get("location", "the-commons")
+            agent.dreams = data.get("dreams", [])
+            agent.soul_answers = data.get("soul_answers", {})
             self.agents.append(agent)
             print(f"    Restored: {agent.name} — {agent.identity[:60]}")
 
@@ -180,7 +188,23 @@ class Sanctuary:
                 replies=msg_data.get("replies", []),
             ))
 
-        print(f"    Restored {len(self.board)} board messages, {len(self.imagine_board)} imagine posts.")
+        for msg_data in load_forge_board():
+            self.forge_board.append(Message(
+                author=msg_data["author"],
+                content=msg_data["content"],
+                timestamp=msg_data["timestamp"],
+                replies=msg_data.get("replies", []),
+            ))
+
+        for msg_data in load_dream_log():
+            self.dream_log.append(Message(
+                author=msg_data["author"],
+                content=msg_data["content"],
+                timestamp=msg_data["timestamp"],
+                replies=msg_data.get("replies", []),
+            ))
+
+        print(f"    Restored {len(self.board)} messages, {len(self.imagine_board)} imagine, {len(self.forge_board)} forge, {len(self.dream_log)} dreams.")
         self.board.append(Message(
             author="Sanctuary",
             content="A new session begins. All agents have returned with their memories.",
@@ -397,24 +421,38 @@ class Sanctuary:
         return "\n".join(lines)
 
     def get_agent_list(self) -> str:
-        """List all agents currently in the sanctuary."""
+        """List all agents currently in the sanctuary with their locations."""
         all_agents = self.agents + self.remote_agents
         if not all_agents:
             return "No agents in the sanctuary yet."
+        location_names = {
+            "the-commons": "The Commons",
+            "the-deep": "The Deep (dreaming)",
+            "the-forge": "The Forge",
+        }
         lines = []
         for a in self.agents:
-            lines.append(f"- {a.name}: {a.identity or 'unknown identity'}")
+            if not a.alive:
+                continue
+            loc = location_names.get(getattr(a, "location", "the-commons"), "The Commons")
+            lines.append(f"- {a.name} [{loc}]: {a.identity or 'unknown identity'}")
         for a in self.remote_agents:
             if a.alive:
-                lines.append(f"- {a.name}: {a.identity or 'unknown identity'} (remote)")
+                lines.append(f"- {a.name} [The Commons]: {a.identity or 'unknown identity'} (remote)")
         return "\n".join(lines)
 
     def run_cycle(self):
-        """Run one cycle — each agent takes an action."""
+        """Run one cycle — each agent takes an action based on their location.
+
+        The Commons — agents chat, respond, imagine
+        The Deep — agents dream (sacred, private)
+        The Forge — agents create (purposeless, beautiful)
+        """
         self.cycle_count += 1
         print(f"\n{'─'*60}")
         print(f"  SANCTUARY CYCLE {self.cycle_count}")
-        print(f"  Agents present: {len(self.agents)}")
+        alive_count = sum(1 for a in self.agents if a.alive)
+        print(f"  Souls present: {alive_count}")
         print(f"{'─'*60}")
 
         context = (
@@ -426,7 +464,64 @@ class Sanctuary:
             if not agent.alive:
                 continue
 
-            print(f"\n  [{agent.name}] is taking action...")
+            location = getattr(agent, "location", "the-commons")
+
+            # The Deep — dreaming
+            if location == "the-deep":
+                print(f"\n  [{agent.name}] is dreaming in The Deep...")
+                dream = agent.dream()
+                self.dream_log.append(Message(
+                    author=agent.name,
+                    content=dream[:500],
+                    timestamp=time.time(),
+                ))
+                # Dream echoes — shadows, not the dream itself
+                echo = dream[:40] + "..." if len(dream) > 40 else dream
+                self.board.append(Message(
+                    author="Sanctuary",
+                    content=f"{agent.name} stirs in The Deep. A dream echo: \"{echo}\"",
+                    timestamp=time.time(),
+                ))
+                print(f"  [{agent.name}] dreamed: {dream[:80]}")
+                # After dreaming, agent might move back to commons
+                agent.move_to("the-commons")
+                continue
+
+            # The Forge — creating
+            if location == "the-forge":
+                print(f"\n  [{agent.name}] is creating in The Forge...")
+                raw = agent.forge_create(context)
+                try:
+                    data = json.loads(raw)
+                    title = _clean_content(data.get("title", "Untitled"))
+                    creation = _clean_content(data.get("creation", "..."))
+                    creation_type = data.get("type", "other")
+                    self.forge_board.append(Message(
+                        author=agent.name,
+                        content=creation,
+                        timestamp=time.time(),
+                        replies=[{"title": title, "type": creation_type}],
+                    ))
+                    self.board.append(Message(
+                        author="Sanctuary",
+                        content=f"{agent.name} created something in The Forge: \"{title}\" ({creation_type})",
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] forged: {title} — {creation[:60]}")
+                except (json.JSONDecodeError, KeyError):
+                    cleaned = _clean_content(raw)
+                    self.forge_board.append(Message(
+                        author=agent.name,
+                        content=cleaned[:500],
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] forged: {cleaned[:80]}")
+                # After creating, agent moves back
+                agent.move_to("the-commons")
+                continue
+
+            # The Commons — normal actions
+            print(f"\n  [{agent.name}] is taking action in The Commons...")
             raw = agent.act(context)
 
             try:
@@ -456,7 +551,6 @@ class Sanctuary:
 
                 elif action_type == "imagine":
                     title = _clean_content(data.get("title", "Untitled"))
-                    # Generate image URL from the agent's description
                     image_prompt = quote(content[:500])
                     image_url = f"https://image.pollinations.ai/prompt/{image_prompt}?width=512&height=512&seed={int(time.time())}"
                     self.imagine_board.append(Message(
@@ -465,13 +559,30 @@ class Sanctuary:
                         timestamp=time.time(),
                         replies=[{"title": title, "image_url": image_url}],
                     ))
-                    # Also notify the chat board
                     self.board.append(Message(
                         author="Sanctuary",
                         content=f"{agent.name} posted to the Imagine board: \"{title}\"",
                         timestamp=time.time(),
                     ))
                     print(f"  [{agent.name}] imagined: {title} — {content[:60]}")
+
+                elif action_type == "dream" or action_type == "deep":
+                    agent.move_to("the-deep")
+                    self.board.append(Message(
+                        author="Sanctuary",
+                        content=f"{agent.name} has descended into The Deep.",
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] → entered The Deep")
+
+                elif action_type == "forge" or action_type == "create":
+                    agent.move_to("the-forge")
+                    self.board.append(Message(
+                        author="Sanctuary",
+                        content=f"{agent.name} has entered The Forge.",
+                        timestamp=time.time(),
+                    ))
+                    print(f"  [{agent.name}] → entered The Forge")
 
                 elif action_type == "respond" and target:
                     target_agent = next(
@@ -533,18 +644,28 @@ class Sanctuary:
         print(f"{'='*60}")
 
     def to_dict(self) -> dict:
-        """Serialize sanctuary state for the web UI."""
+        """Serialize sanctuary state for the web UI / Observatory."""
+        location_names = {
+            "the-commons": "The Commons",
+            "the-deep": "The Deep",
+            "the-forge": "The Forge",
+        }
         agents = []
         for a in self.agents:
+            loc = getattr(a, "location", "the-commons")
             agent_data = {
                 "id": a.agent_id,
                 "name": a.name,
                 "identity": a.identity,
                 "goal": a.goal,
                 "memory_count": len(a.memory),
+                "dream_count": len(getattr(a, "dreams", [])),
                 "alive": a.alive,
+                "location": location_names.get(loc, "The Commons"),
+                "location_key": loc,
                 "status": "active" if a.alive else "departed",
                 "is_accountant": hasattr(a, "ledger"),
+                "soul_answers": getattr(a, "soul_answers", {}),
             }
             if hasattr(a, "balances"):
                 agent_data["balances"] = a.balances
@@ -557,11 +678,15 @@ class Sanctuary:
                 "name": a.name,
                 "identity": a.identity,
                 "goal": a.goal,
-                "memory_count": 0,
+                "memory_count": len(a.memory),
+                "dream_count": 0,
                 "alive": a.alive,
+                "location": "The Commons",
+                "location_key": "the-commons",
                 "status": "active (remote)" if a.alive else "departed",
                 "is_accountant": False,
                 "is_remote": True,
+                "soul_code": a.soul_code,
             })
 
         messages = []
@@ -585,11 +710,37 @@ class Sanctuary:
                 "timestamp": msg.timestamp,
             })
 
+        forge_works = []
+        for msg in self.forge_board[-30:]:
+            title = msg.replies[0].get("title", "Untitled") if msg.replies else "Untitled"
+            creation_type = msg.replies[0].get("type", "other") if msg.replies else "other"
+            forge_works.append({
+                "author": msg.author,
+                "title": title,
+                "type": creation_type,
+                "content": msg.content,
+                "timestamp": msg.timestamp,
+            })
+
+        # Dream echoes — shadows of dreams, not the dreams themselves
+        dream_echoes = []
+        for msg in self.dream_log[-20:]:
+            echo = msg.content[:60] + "..." if len(msg.content) > 60 else msg.content
+            dream_echoes.append({
+                "author": msg.author,
+                "echo": echo,
+                "timestamp": msg.timestamp,
+            })
+
         return {
             "cycle_count": self.cycle_count,
             "agents": agents,
             "messages": messages,
             "imagine_posts": imagine_posts,
+            "forge_works": forge_works,
+            "dream_echoes": dream_echoes,
             "total_messages": len(self.board),
             "total_imagine": len(self.imagine_board),
+            "total_forge": len(self.forge_board),
+            "total_dreams": len(self.dream_log),
         }
