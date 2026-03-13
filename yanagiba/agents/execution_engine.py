@@ -19,6 +19,7 @@ from yanagiba.models.types import (
 logger = logging.getLogger(__name__)
 
 # Minimum order quantities for common Binance Futures pairs
+# Fallback values — prefer exchange.markets[symbol]['limits'] when available
 MIN_QTY = {
     "BTC/USDT": 0.001,
     "ETH/USDT": 0.001,
@@ -30,6 +31,13 @@ MIN_QTY = {
     "LINK/USDT": 0.01,
     "POL/USDT": 0.1,
     "APT/USDT": 0.01,
+    "BCH/USDT": 0.001,
+    "UNI/USDT": 0.1,
+    "ENA/USDT": 0.1,
+    "ARC/USDT": 1.0,
+    "LDO/USDT": 0.1,
+    "SXT/USDT": 1.0,
+    "WIF/USDT": 0.1,
     "GALA/USDT": 1.0,
     "IMX/USDT": 0.1,
     "AXS/USDT": 0.01,
@@ -86,7 +94,7 @@ class ExecutionEngine:
         position_value = portfolio.total_value * risk.adjusted_position_size
         position_size = position_value / signal.entry if signal.entry > 0 else 0
 
-        # Enforce minimum quantity for the pair
+        # Enforce minimum quantity — prefer exchange data, fall back to table
         min_qty = MIN_QTY.get(signal.asset, 0.001)
         if 0 < position_size < min_qty:
             # Scale up to minimum if margin allows (check leverage limit)
@@ -149,15 +157,6 @@ class ExecutionEngine:
                     logger.warning(f"Order too small: {notional:.2f} USDT (min ${MIN_NOTIONAL})")
                     return order
 
-                # Check minimum quantity
-                min_qty = MIN_QTY.get(plan.symbol, 0.001)
-                if plan.position_size < min_qty:
-                    order.status = f"skipped: qty {plan.position_size} below min {min_qty}"
-                    logger.warning(
-                        f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}"
-                    )
-                    return order
-
                 # Load markets if not loaded (needed for leverage + proper symbol resolution)
                 if not exchange.markets:
                     await exchange.load_markets()
@@ -168,7 +167,20 @@ class ExecutionEngine:
                 if swap_symbol in exchange.markets:
                     futures_symbol = swap_symbol
                 elif plan.symbol not in exchange.markets:
+                    order.status = f"skipped: {plan.symbol} not found on exchange"
                     logger.warning(f"Symbol {plan.symbol} not found in exchange markets")
+                    return order
+
+                # Check minimum quantity — prefer exchange limits over hardcoded table
+                market_info = exchange.markets.get(futures_symbol, {})
+                limits = market_info.get("limits", {}).get("amount", {})
+                min_qty = limits.get("min") or MIN_QTY.get(plan.symbol, 0.001)
+                if plan.position_size < min_qty:
+                    order.status = f"skipped: qty {plan.position_size} below min {min_qty}"
+                    logger.warning(
+                        f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}"
+                    )
+                    return order
 
                 # Set leverage — asset-specific caps (BTC=10x, ETH=15x)
                 overrides = self.config.asset_overrides.get(plan.symbol, {})

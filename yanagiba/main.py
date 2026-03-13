@@ -255,6 +255,14 @@ class TradingBot:
             return None
 
         try:
+            # Validate symbol exists on exchange before wasting API calls
+            if not self.data_provider.symbol_exists(symbol):
+                logger.warning(
+                    f"Skipping {symbol} — not available on "
+                    f"{self.config.exchange} ({self.config.market_type})"
+                )
+                return None
+
             # 1. MARKET ANALYST: Gather data and analyze
             logger.info(f"AGENT 1: Market Analyst scanning {symbol}...")
             ohlcv_data = await self.data_provider.fetch_multi_timeframe(

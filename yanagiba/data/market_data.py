@@ -50,6 +50,7 @@ class MarketDataProvider:
     ):
         exchange_class = getattr(ccxt, exchange_id)
         options: dict = {"enableRateLimit": True}
+        self._market_type = market_type
         if market_type == "future":
             # Binance USDM perpetual futures use "swap" in ccxt
             options["defaultType"] = "swap"
@@ -68,20 +69,47 @@ class MarketDataProvider:
             await self.exchange.load_markets()
             self._markets_loaded = True
 
+    def resolve_symbol(self, symbol: str) -> str:
+        """Resolve a base symbol (e.g. BTC/USDT) to the correct market symbol.
+
+        For futures/swap markets, ccxt uses BTC/USDT:USDT format.
+        Returns the resolved symbol, or the original if not found.
+        """
+        if not self._markets_loaded or not self.exchange.markets:
+            return symbol
+        # Already in exchange markets — use as-is
+        if symbol in self.exchange.markets:
+            return symbol
+        # Try futures/swap format: SYMBOL:USDT
+        if self._market_type == "future":
+            swap_symbol = f"{symbol}:USDT"
+            if swap_symbol in self.exchange.markets:
+                return swap_symbol
+        return symbol
+
+    def symbol_exists(self, symbol: str) -> bool:
+        """Check if a symbol (or its futures variant) exists on the exchange."""
+        if not self._markets_loaded:
+            return True  # assume exists if markets not loaded yet
+        resolved = self.resolve_symbol(symbol)
+        return resolved in self.exchange.markets
+
     async def close(self):
         await self.exchange.close()
 
     async def fetch_ohlcv(
         self, symbol: str, timeframe: str = "1h", limit: int = 200
     ) -> pd.DataFrame:
-        raw = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        resolved = self.resolve_symbol(symbol)
+        raw = await self.exchange.fetch_ohlcv(resolved, timeframe, limit=limit)
         df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df.set_index("timestamp", inplace=True)
         return df
 
     async def fetch_order_book(self, symbol: str, limit: int = 50) -> dict[str, Any]:
-        book = await self.exchange.fetch_order_book(symbol, limit)
+        resolved = self.resolve_symbol(symbol)
+        book = await self.exchange.fetch_order_book(resolved, limit)
         bids = np.array(book["bids"])
         asks = np.array(book["asks"])
 
@@ -90,21 +118,28 @@ class MarketDataProvider:
         total = bid_volume + ask_volume
         imbalance = (bid_volume - ask_volume) / total if total > 0 else 0.0
 
+        best_bid = float(bids[0][0]) if len(bids) > 0 else 0.0
+        best_ask = float(asks[0][0]) if len(asks) > 0 else 0.0
+
         return {
             "bids": book["bids"],
             "asks": book["asks"],
             "bid_volume": bid_volume,
             "ask_volume": ask_volume,
             "imbalance": imbalance,  # positive = buy pressure
-            "spread": float(asks[0][0] - bids[0][0]) if len(asks) > 0 and len(bids) > 0 else 0.0,
+            "spread": float(best_ask - best_bid) if best_bid > 0 and best_ask > 0 else 0.0,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
         }
 
     async def fetch_ticker(self, symbol: str) -> dict[str, Any]:
-        return await self.exchange.fetch_ticker(symbol)
+        resolved = self.resolve_symbol(symbol)
+        return await self.exchange.fetch_ticker(resolved)
 
     async def fetch_funding_rate(self, symbol: str) -> float | None:
         try:
-            funding = await self.exchange.fetch_funding_rate(symbol)
+            resolved = self.resolve_symbol(symbol)
+            funding = await self.exchange.fetch_funding_rate(resolved)
             return funding.get("fundingRate")
         except Exception:
             return None
