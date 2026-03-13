@@ -113,9 +113,12 @@ class RiskManager:
         sl_distance = abs(entry - sl)
         tp_distance = abs(tp1 - entry)
 
-        # Actual R:R after fees (fees reduce TP and increase SL)
-        effective_tp = tp_distance - (entry * fee_cost)
-        effective_sl = sl_distance + (entry * fee_cost)
+        # Actual R:R after fees: fees are proportional to notional (entry price)
+        # On a round trip, total fee cost = entry * fee_cost per unit
+        # This reduces profit by fee_cost*entry and increases loss by fee_cost*entry
+        fee_per_unit = entry * fee_cost
+        effective_tp = tp_distance - fee_per_unit
+        effective_sl = sl_distance + fee_per_unit
         fee_adjusted_rr = (
             effective_tp / effective_sl if effective_sl > 0 else 0
         )
@@ -136,58 +139,69 @@ class RiskManager:
             )
             return self._reject(RiskLevel.MEDIUM, "; ".join(reasons))
 
-        # Position sizing — volatility-scaled
+        # Position sizing — volatility-scaled, risk-based
+        # Goal: risk exactly risk_per_trade % of portfolio on this trade
         vol_scale = max(0.3, 1.0 - volatility_level)
         risk_per_trade = self.config.max_risk_per_trade * vol_scale
         max_loss = portfolio.total_value * risk_per_trade
 
+        # Calculate position size from max acceptable loss:
+        # max_loss = position_notional * sl_distance_pct
+        # position_notional = max_loss / sl_distance_pct
+        # margin_pct = position_notional / portfolio_value / leverage
         sl_distance_pct = abs(entry - sl) / entry if entry > 0 else 1
-        position_size_pct = (
-            risk_per_trade / sl_distance_pct
-            if sl_distance_pct > 0 else 0
-        )
 
-        # Asset-specific leverage cap (BTC=10x, ETH=15x, alts=20x)
         asset_overrides = self.config.asset_overrides.get(
             signal.asset, {}
         )
         max_lev = asset_overrides.get(
             "max_leverage", self.config.max_leverage
         )
-        position_size_pct = min(position_size_pct, max_lev)
 
-        # Cap margin usage
-        margin_pct = position_size_pct / max_lev
+        # Position notional = max_loss / sl_distance_pct
+        # Then margin = notional / leverage
+        if sl_distance_pct > 0:
+            position_notional = max_loss / sl_distance_pct
+        else:
+            position_notional = 0
+
+        # Cap notional by leverage limit: notional <= portfolio * leverage
+        max_notional = portfolio.total_value * max_lev
+        position_notional = min(position_notional, max_notional)
+
+        # margin_pct = fraction of portfolio used as margin
+        margin_pct = (
+            (position_notional / max_lev / portfolio.total_value)
+            if portfolio.total_value > 0 else 0
+        )
+
+        # Check remaining margin capacity
         remaining_margin = (
             self.config.max_portfolio_risk - portfolio.total_exposure_pct
         )
         if margin_pct > remaining_margin:
-            position_size_pct = remaining_margin * max_lev
+            margin_pct = remaining_margin
+            position_notional = margin_pct * max_lev * portfolio.total_value
+
+        # Convert to position_size_pct (notional / portfolio_value)
+        position_size_pct = (
+            position_notional / portfolio.total_value
+            if portfolio.total_value > 0 else 0
+        )
 
         if position_size_pct <= 0:
             return self._reject(
                 RiskLevel.HIGH, "No room for new positions"
             )
 
-        # Enforce minimum notional ($5 on Binance Futures)
-        # If vol scaling drops position below min, bump up to min
+        # Check minimum notional ($5 on Binance Futures) — reject if too small
         min_notional = 5.0
-        position_value = portfolio.total_value * position_size_pct
-        if position_value < min_notional and portfolio.total_value > 0:
-            min_size_pct = min_notional / portfolio.total_value
-            min_margin = min_size_pct / max_lev
-            if min_margin + portfolio.total_exposure_pct <= self.config.max_portfolio_risk:
-                position_size_pct = min_size_pct
-                logger.info(
-                    f"Bumped position to min notional "
-                    f"(${min_notional}): {position_size_pct:.4f}"
-                )
-            else:
-                return self._reject(
-                    RiskLevel.MEDIUM,
-                    f"Position ${position_value:.2f} below "
-                    f"${min_notional} min notional, no margin to bump",
-                )
+        if position_notional < min_notional:
+            return self._reject(
+                RiskLevel.MEDIUM,
+                f"Position notional ${position_notional:.2f} below "
+                f"${min_notional} exchange minimum",
+            )
 
         # Weekend scaling — reduce position size on Sat/Sun
         if is_weekend and self.config.use_weekend_filter:

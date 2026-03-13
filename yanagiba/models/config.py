@@ -41,15 +41,15 @@ class TradingConfig:
         default_factory=lambda: ["1m", "3m", "5m"]
     )
 
-    # Risk limits (micro account ~$50, needs leverage to meet minimums)
-    max_portfolio_risk: float = 0.80  # 80% max margin exposure
-    max_risk_per_trade: float = 0.03  # 3% risk per trade ($1.50 on $50 — survive 10 losses)
-    max_leverage: float = 20.0  # up to 20x leverage (needed to meet $5 min notional)
-    daily_loss_limit: float = 0.06  # 6% daily loss cap ($3 on $50 — live to trade tomorrow)
+    # Risk limits (micro account ~$50)
+    max_portfolio_risk: float = 0.30  # 30% max margin exposure (conservative)
+    max_risk_per_trade: float = 0.01  # 1% risk per trade ($0.50 on $50 — survive 30+ losses)
+    max_leverage: float = 3.0  # max 3x leverage (safe for micro accounts)
+    daily_loss_limit: float = 0.03  # 3% daily loss cap ($1.50 on $50)
     scalp_stop_loss: float = 0.004  # 0.4% for scalping (tighter = more trades survive)
     scalp_take_profit_min: float = 0.012  # 1.2% TP1 (3:1 R:R with 0.4% SL)
     scalp_take_profit_max: float = 0.025  # 2.5% TP2
-    scalp_position_size: float = 0.10  # 10% of portfolio per scalp ($5)
+    scalp_position_size: float = 0.05  # 5% of portfolio per scalp
 
     # R:R and confidence thresholds
     min_risk_reward: float = 1.8  # minimum R:R to take a trade (need ~36% win rate)
@@ -94,13 +94,13 @@ class TradingConfig:
                 "scalp_stop_loss": 0.003,  # 0.3% (BTC is tighter)
                 "scalp_take_profit_min": 0.009,  # 0.9% TP1
                 "scalp_take_profit_max": 0.018,  # 1.8% TP2
-                "max_leverage": 10.0,  # BTC: lower leverage, more predictable
+                "max_leverage": 3.0,  # BTC: conservative leverage
             },
             "ETH/USDT": {
                 "scalp_stop_loss": 0.004,  # 0.4%
                 "scalp_take_profit_min": 0.012,
                 "scalp_take_profit_max": 0.024,
-                "max_leverage": 15.0,  # ETH: moderate leverage
+                "max_leverage": 3.0,  # ETH: conservative leverage
             },
         }
     )

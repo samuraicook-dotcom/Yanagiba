@@ -64,22 +64,27 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return None
 
-        # EMA pullback: price near fast EMA in uptrend (ATR-scaled zone)
+        # EMA pullback: price near fast EMA in uptrend (tight ATR-scaled zone)
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            atr_zone = min(atr_val / close * 1.5, 0.02)  # dynamic zone based on volatility
+            atr_zone = min(atr_val / close * 0.8, 0.008)  # tight zone: must be close to EMA
             pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             above_mid = close > latest["ema_mid"]
-            rsi_ok = not np.isnan(latest["rsi"]) and 40 < latest["rsi"] < 75
+            # RSI 40-65: avoid overbought territory entirely
+            rsi_ok = not np.isnan(latest["rsi"]) and 40 < latest["rsi"] < 65
 
             if pullback and above_mid and rsi_ok:
-                sl = close - 1.5 * atr_val  # tighter SL
-                tp1 = close + 3 * atr_val   # bigger TP
+                sl = close - 1.5 * atr_val
+                tp1 = close + 3 * atr_val
                 tp2 = close + 5 * atr_val
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
+                # Dynamic confidence based on RSI sweet spot (45-55 best)
+                rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
+                confidence = min(5.0 + rsi_quality * 3 + rr * 0.3, 9.0)
                 return TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(confidence, 1),
                     strategy="ema_pullback_long", timeframe=tf,
                 )
         return None
@@ -93,20 +98,24 @@ class StrategyEngine:
             return None
 
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            atr_zone = min(atr_val / close * 1.5, 0.02)
+            atr_zone = min(atr_val / close * 0.8, 0.008)  # tight zone
             pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             below_mid = close < latest["ema_mid"]
-            rsi_ok = not np.isnan(latest["rsi"]) and 25 < latest["rsi"] < 60
+            # RSI 35-60: avoid oversold territory entirely
+            rsi_ok = not np.isnan(latest["rsi"]) and 35 < latest["rsi"] < 60
 
             if pullback and below_mid and rsi_ok:
                 sl = close + 1.5 * atr_val
                 tp1 = close - 3 * atr_val
                 tp2 = close - 5 * atr_val
                 rr = (close - tp1) / (sl - close) if sl > close else 0
+                rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
+                confidence = min(5.0 + rsi_quality * 3 + rr * 0.3, 9.0)
                 return TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(confidence, 1),
                     strategy="ema_pullback_short", timeframe=tf,
                 )
         return None
@@ -120,30 +129,38 @@ class StrategyEngine:
         if np.isnan(atr_val) or atr_val <= 0:
             return signals
 
-        # Mean reversion: Bollinger band proximity (wider zone = more setups)
+        # Mean reversion: price must be AT or BEYOND Bollinger band
         if not np.isnan(latest["bb_lower"]) and not np.isnan(latest["bb_upper"]):
-            # Long near lower band (1.5% zone above lower band)
-            if close <= latest["bb_lower"] * 1.015:
-                sl = close - 1.0 * atr_val  # tighter SL
-                tp1 = latest["bb_mid"]
+            # Confirm ranging: RSI between 35-65 (not in a strong trend)
+            rsi_val = latest["rsi"] if not np.isnan(latest["rsi"]) else 50
+            is_ranging = 35 < rsi_val < 65
+
+            # Long: price at or below lower band (true extreme)
+            if close <= latest["bb_lower"] and is_ranging:
+                sl = close - 1.0 * atr_val
+                tp1 = latest["bb_mid"]  # TP at midline (match entry thesis)
                 tp2 = latest["bb_upper"]
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
+                confidence = min(5.0 + abs(rsi_val - 30) * 0.1 + rr * 0.3, 8.5)
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(confidence, 1),
                     strategy="bb_mean_reversion_long", timeframe=tf,
                 ))
-            # Short near upper band (1.5% zone below upper band)
-            elif close >= latest["bb_upper"] * 0.985:
+            # Short: price at or above upper band (true extreme)
+            elif close >= latest["bb_upper"] and is_ranging:
                 sl = close + 1.0 * atr_val
-                tp1 = latest["bb_mid"]
+                tp1 = latest["bb_mid"]  # TP at midline (match entry thesis)
                 tp2 = latest["bb_lower"]
                 rr = (close - tp1) / (sl - close) if sl > close else 0
+                confidence = min(5.0 + abs(rsi_val - 70) * 0.1 + rr * 0.3, 8.5)
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(confidence, 1),
                     strategy="bb_mean_reversion_short", timeframe=tf,
                 ))
 

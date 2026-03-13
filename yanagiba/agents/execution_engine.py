@@ -89,10 +89,18 @@ class ExecutionEngine:
     ) -> ExecutionPlan:
         side = "buy" if signal.direction == Direction.LONG else "sell"
 
-        # Position size: use leverage to get meaningful position from small account
-        # adjusted_position_size can be > 1.0 (e.g. 3.0 = 3x leverage)
+        # Position size: adjusted_position_size is notional/portfolio ratio from risk manager
+        # e.g. 0.15 means 15% of portfolio as notional value
         position_value = portfolio.total_value * risk.adjusted_position_size
         position_size = position_value / signal.entry if signal.entry > 0 else 0
+
+        # Safety cap: notional must not exceed portfolio * max_leverage
+        overrides = self.config.asset_overrides.get(signal.asset, {})
+        max_lev = overrides.get("max_leverage", self.config.max_leverage)
+        max_notional = portfolio.total_value * max_lev
+        if position_value > max_notional:
+            position_value = max_notional
+            position_size = position_value / signal.entry if signal.entry > 0 else 0
 
         # Enforce minimum quantity — prefer exchange data, fall back to table
         min_qty = MIN_QTY.get(signal.asset, 0.001)
