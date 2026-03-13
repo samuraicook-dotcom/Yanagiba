@@ -33,11 +33,22 @@ def _config_to_dict(config: TradingConfig) -> dict:
 
 def _dict_to_config(data: dict) -> TradingConfig:
     """Build TradingConfig from a dict, casting types appropriately."""
-    valid_fields = {f.name for f in fields(TradingConfig)}
+    field_types = {f.name: f.type for f in fields(TradingConfig)}
     filtered = {}
     for k, v in data.items():
-        if k not in valid_fields:
+        if k not in field_types:
             continue
+        # Cast numeric types from JSON/form strings
+        ft = field_types[k]
+        try:
+            if ft == "float" and not isinstance(v, float):
+                v = float(v)
+            elif ft == "int" and not isinstance(v, int):
+                v = int(v)
+            elif ft == "bool" and not isinstance(v, bool):
+                v = str(v).lower() in ("true", "1", "yes")
+        except (ValueError, TypeError):
+            pass  # keep original value
         filtered[k] = v
     return TradingConfig(**filtered)
 

@@ -68,10 +68,13 @@ class PositionTracker:
         if POSITIONS_FILE.exists():
             try:
                 data = json.loads(POSITIONS_FILE.read_text())
+                valid_fields = {f.name for f in __import__('dataclasses').fields(TrackedPosition)}
                 for d in data:
                     if d.get("status", "open") != "open":
                         continue  # skip closed/errored positions
-                    self.positions.append(TrackedPosition(**d))
+                    # Filter to valid fields only (survives schema changes)
+                    filtered = {k: v for k, v in d.items() if k in valid_fields}
+                    self.positions.append(TrackedPosition(**filtered))
                 if self.positions:
                     logger.info(f"Restored {len(self.positions)} open positions from disk")
             except Exception as e:

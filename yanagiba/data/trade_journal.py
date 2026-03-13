@@ -90,25 +90,15 @@ class TradeJournal:
         except Exception as e:
             logger.warning(f"Could not write trade journal: {e}")
 
-        # Update stats
+        # Update stats — count trade entry (wins/losses tracked at close time)
         if status in ("placed", "closed"):
             self._stats["total_trades"] += 1
-            if pnl > 0:
-                self._stats["wins"] += 1
-            elif pnl < 0:
-                self._stats["losses"] += 1
-            self._stats["total_pnl"] += pnl
 
-            # Strategy-level tracking
+            # Strategy-level tracking (trade count at entry)
             strat = self._stats["strategy_stats"].setdefault(strategy, {
                 "trades": 0, "wins": 0, "losses": 0, "pnl": 0.0,
             })
             strat["trades"] += 1
-            if pnl > 0:
-                strat["wins"] += 1
-            elif pnl < 0:
-                strat["losses"] += 1
-            strat["pnl"] += pnl
 
             self._save_stats()
 
@@ -134,7 +124,11 @@ class TradeJournal:
         except Exception as e:
             logger.warning(f"Could not write trade close: {e}")
 
-        # Update PnL only — wins/losses already counted at entry in log_trade()
+        # Update PnL and wins/losses at close time (when we know the outcome)
+        if pnl > 0:
+            self._stats["wins"] += 1
+        elif pnl < 0:
+            self._stats["losses"] += 1
         self._stats["total_pnl"] += pnl
         self._save_stats()
 
