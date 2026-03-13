@@ -187,8 +187,10 @@ def get_logs():
     lines = []
     if LOG_FILE.exists():
         try:
-            all_lines = LOG_FILE.read_text().strip().split("\n")
-            lines = all_lines[-lines_count:]
+            from collections import deque
+            with open(LOG_FILE) as f:
+                lines = list(deque(f, maxlen=lines_count))
+            lines = [line.rstrip("\n") for line in lines]
         except OSError:
             pass
     return jsonify(lines)

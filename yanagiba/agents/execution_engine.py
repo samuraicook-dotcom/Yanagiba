@@ -120,6 +120,9 @@ class ExecutionEngine:
         if step > 0 and position_size > 0:
             import math
             position_size = math.floor(position_size / step) * step
+            # Ensure rounding didn't drop below minimum
+            if position_size < step:
+                position_size = step
 
         plan = ExecutionPlan(
             order_type="LIMIT",
@@ -223,7 +226,10 @@ class ExecutionEngine:
                             type="stop_market",
                             side=sl_side,
                             amount=plan.position_size,
-                            params={"stopPrice": plan.stop},
+                            params={
+                                "stopPrice": plan.stop,
+                                "reduceOnly": True,
+                            },
                         )
                         logger.info(f"Stop loss set at {plan.stop}")
                         sl_placed = True

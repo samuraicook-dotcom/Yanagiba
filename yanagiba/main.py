@@ -84,12 +84,14 @@ class TradingBot:
         if PORTFOLIO_FILE.exists():
             try:
                 data = json.loads(PORTFOLIO_FILE.read_text())
-                logger.info(f"Restored portfolio: ${data['total_value']:.2f}")
+                tv = data.get("total_value", 0.0)
+                logger.info(f"Restored portfolio: ${tv:.2f}")
                 return PortfolioState(
-                    total_value=data.get("total_value", 0.0),
+                    total_value=tv,
                     cash=data.get("cash", 0.0),
                     total_exposure_pct=data.get("total_exposure_pct", 0.0),
                     daily_pnl=data.get("daily_pnl", 0.0),
+                    daily_loss_pct=data.get("daily_loss_pct", 0.0),
                 )
             except Exception as e:
                 logger.warning(f"Could not restore portfolio: {e}")
@@ -104,6 +106,7 @@ class TradingBot:
                 "cash": self.portfolio.cash,
                 "total_exposure_pct": self.portfolio.total_exposure_pct,
                 "daily_pnl": self.portfolio.daily_pnl,
+                "daily_loss_pct": self.portfolio.daily_loss_pct,
             }, indent=2))
         except Exception as e:
             logger.warning(f"Could not save portfolio: {e}")
@@ -368,7 +371,10 @@ class TradingBot:
                         "max_leverage", self.config.max_leverage
                     )
                     margin_usd = notional / max_lev
-                    margin_pct = margin_usd / self.portfolio.total_value
+                    margin_pct = (
+                        margin_usd / self.portfolio.total_value
+                        if self.portfolio.total_value > 0 else 0
+                    )
                     self.portfolio.total_exposure_pct += margin_pct
                     self.portfolio.cash -= margin_usd
                     logger.info(

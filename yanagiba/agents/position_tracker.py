@@ -45,6 +45,9 @@ class TrackedPosition:
             "margin_usd": self.margin_usd,
             "stop_loss": self.stop_loss,
             "take_profits": self.take_profits,
+            "entry_order_id": self.entry_order_id,
+            "sl_order_id": self.sl_order_id,
+            "tp_order_ids": self.tp_order_ids,
             "status": self.status,
             "realized_pnl": self.realized_pnl,
             "opened_at": self.opened_at,
@@ -125,13 +128,16 @@ class PositionTracker:
             exchange_positions = await exchange.fetch_positions()
             open_symbols = {}
             for ep in exchange_positions:
-                if ep.get("contracts", 0) > 0:
+                if abs(float(ep.get("contracts", 0))) > 0:
                     sym = ep.get("symbol", "")
                     open_symbols[sym] = ep
 
             # Check each tracked position
             for pos in list(self.positions):
-                futures_sym = f"{pos.symbol}:USDT"
+                futures_sym = (
+                    pos.symbol if ":USDT" in pos.symbol
+                    else f"{pos.symbol}:USDT"
+                )
                 check_sym = futures_sym if futures_sym in open_symbols else pos.symbol
 
                 if check_sym not in open_symbols:
@@ -181,7 +187,7 @@ class PositionTracker:
                 else:
                     # Position still open — check for partial close (TP1 filled)
                     ep_data = open_symbols[check_sym]
-                    current_contracts = float(ep_data.get("contracts", 0))
+                    current_contracts = abs(float(ep_data.get("contracts", 0)))
                     unrealized = float(ep_data.get("unrealizedPnl", 0))
 
                     # Detect partial close: exchange qty < tracked qty
@@ -267,7 +273,10 @@ class PositionTracker:
     ) -> float:
         """Fetch realized PnL for a partial close from exchange trade history."""
         try:
-            futures_sym = f"{pos.symbol}:USDT"
+            futures_sym = (
+                pos.symbol if ":USDT" in pos.symbol
+                else f"{pos.symbol}:USDT"
+            )
             try:
                 trades = await exchange.fetch_my_trades(futures_sym, limit=20)
             except Exception:
@@ -284,7 +293,7 @@ class PositionTracker:
                     try:
                         opened_ms = dt.fromisoformat(pos.opened_at).timestamp() * 1000
                         if t_time < opened_ms:
-                            break  # older than our position
+                            continue  # skip trades older than our position
                     except (ValueError, TypeError):
                         pass
                 info = t.get("info", {})
@@ -292,9 +301,6 @@ class PositionTracker:
                 if realized != 0:
                     total_pnl += realized
                     found = True
-                elif found:
-                    # End of the recent batch of fills
-                    break
             if found:
                 logger.info(
                     f"Partial close PnL for {pos.symbol}: "
@@ -323,7 +329,11 @@ class PositionTracker:
         Falls back to price-based estimation if the exchange API fails.
         """
         try:
-            trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
+            futures_sym = f"{pos.symbol}:USDT"
+            try:
+                trades = await exchange.fetch_my_trades(futures_sym, limit=20)
+            except Exception:
+                trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
             relevant_pnl = 0.0
             found_close = False
             for t in reversed(trades):
@@ -336,7 +346,7 @@ class PositionTracker:
                             dt.fromisoformat(pos.opened_at).timestamp() * 1000
                         )
                         if t_time < opened_ms:
-                            break
+                            continue  # skip trades older than our position
                     except (ValueError, TypeError):
                         pass
                 info = t.get("info", {})

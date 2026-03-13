@@ -113,9 +113,11 @@ class RiskManager:
         sl_distance = abs(entry - sl)
         tp_distance = abs(tp1 - entry)
 
-        # Actual R:R after fees (fees reduce TP and increase SL)
-        effective_tp = tp_distance - (entry * fee_cost)
-        effective_sl = sl_distance + (entry * fee_cost)
+        # Actual R:R after fees (round-trip fee reduces net profit)
+        # Fee is deducted from profit side only — not applied to both sides
+        total_fee = entry * fee_cost
+        effective_tp = tp_distance - total_fee
+        effective_sl = sl_distance
         fee_adjusted_rr = (
             effective_tp / effective_sl if effective_sl > 0 else 0
         )

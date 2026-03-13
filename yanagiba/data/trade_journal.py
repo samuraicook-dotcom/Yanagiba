@@ -134,23 +134,23 @@ class TradeJournal:
         except Exception as e:
             logger.warning(f"Could not write trade close: {e}")
 
-        # Update win/loss stats (don't increment total_trades — already counted at entry)
-        if pnl > 0:
-            self._stats["wins"] += 1
-        elif pnl < 0:
-            self._stats["losses"] += 1
+        # Update PnL only — wins/losses already counted at entry in log_trade()
         self._stats["total_pnl"] += pnl
         self._save_stats()
 
     def update_drawdown(self, portfolio_value: float):
         """Track max drawdown for risk monitoring."""
+        changed = False
         if portfolio_value > self._stats["peak_value"]:
             self._stats["peak_value"] = portfolio_value
+            changed = True
         if self._stats["peak_value"] > 0:
             drawdown = (self._stats["peak_value"] - portfolio_value) / self._stats["peak_value"]
             if drawdown > self._stats["max_drawdown"]:
                 self._stats["max_drawdown"] = drawdown
-                self._save_stats()
+                changed = True
+        if changed:
+            self._save_stats()
 
     def get_performance(self) -> dict:
         """Get current performance metrics."""

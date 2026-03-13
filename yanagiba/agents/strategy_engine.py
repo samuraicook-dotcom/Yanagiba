@@ -297,6 +297,8 @@ class StrategyEngine:
         rsi_val = latest["rsi"]
         vwap_val = latest["vwap"]
         vd = latest.get("volume_delta", 0)
+        if pd.isna(vd):
+            vd = 0
 
         if any(np.isnan(x) for x in [rsi_val, vwap_val]):
             return None
@@ -391,8 +393,25 @@ class StrategyEngine:
 
         return min(conf, 10)
 
+    @staticmethod
+    def _validate_prices(signals: list[TradeSignal]) -> list[TradeSignal]:
+        """Remove signals with invalid prices (negative, zero, or NaN)."""
+        valid = []
+        for sig in signals:
+            prices = [sig.entry, sig.stop_loss, sig.take_profit_1, sig.take_profit_2]
+            if all(p > 0 and not np.isnan(p) for p in prices):
+                valid.append(sig)
+            else:
+                logger.warning(
+                    f"Rejected {sig.asset} {sig.strategy}: invalid prices "
+                    f"(entry={sig.entry}, sl={sig.stop_loss}, "
+                    f"tp1={sig.take_profit_1}, tp2={sig.take_profit_2})"
+                )
+        return valid
+
     def _deduplicate(self, signals: list[TradeSignal]) -> list[TradeSignal]:
-        # Keep only the single highest-confidence signal per asset
+        # Validate prices first, then keep highest-confidence per asset
+        signals = self._validate_prices(signals)
         # Prevents contradictory LONG + SHORT on the same pair
         best: dict[str, TradeSignal] = {}
         for sig in signals:
