@@ -29,12 +29,16 @@ from yanagiba.agents.position_tracker import PositionTracker
 from yanagiba.agents.risk_manager import RiskManager
 from yanagiba.agents.strategy_engine import StrategyEngine
 from yanagiba.data.cme_gap import CMEGapTracker
+from yanagiba.data.liquidations import LiquidationTracker
 from yanagiba.data.market_data import MarketDataProvider
+from yanagiba.data.mempool import MempoolMonitor
+from yanagiba.data.open_interest import OpenInterestTracker
 from yanagiba.data.sentiment import SentimentTracker
 from yanagiba.data.telegram import TelegramNotifier
 from yanagiba.data.trade_journal import TradeJournal
+from yanagiba.data.volume_flow import VolumeFlowTracker
 from yanagiba.models.config import TradingConfig
-from yanagiba.models.types import PortfolioState
+from yanagiba.models.types import OnChainMetrics, PortfolioState
 
 PORTFOLIO_FILE = Path.home() / "Yanagiba" / "journal" / "portfolio_state.json"
 
@@ -74,6 +78,10 @@ class TradingBot:
         self.position_tracker = PositionTracker()
         self.journal = TradeJournal()
         self.cme_gap = CMEGapTracker()
+        self.oi_tracker = OpenInterestTracker()
+        self.liq_tracker = LiquidationTracker()
+        self.volume_flow = VolumeFlowTracker()
+        self.mempool = MempoolMonitor()
         self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = self._load_portfolio()
         self._running = False
@@ -140,6 +148,9 @@ class TradingBot:
 
         # Ensure markets are loaded (needed for futures symbol resolution)
         await self.data_provider.load_markets()
+
+        # Start liquidation WebSocket stream (idempotent — only starts once)
+        await self.liq_tracker.start()
 
         cycle_results = []
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -275,8 +286,12 @@ class TradingBot:
             order_book = await self.data_provider.fetch_order_book(symbol)
             funding_rate = await self.data_provider.fetch_funding_rate(symbol)
 
+            # Fetch on-chain / order flow data (OI, volume flow, mempool)
+            on_chain = await self._fetch_on_chain_metrics(symbol, ohlcv_data)
+
             analysis = self.analyst.analyze(
                 ohlcv_data, order_book, funding_rate, symbol=symbol,
+                on_chain=on_chain,
             )
 
             # CME gap bias for BTC — gaps fill 65-98% of the time
@@ -303,7 +318,9 @@ class TradingBot:
 
             # 2. STRATEGY ENGINE: Generate signals
             logger.info(f"AGENT 2: Strategy Engine generating signals for {symbol}...")
-            signals = self.strategy.generate_signals(symbol, analysis, ohlcv_data, order_book)
+            signals = self.strategy.generate_signals(
+                symbol, analysis, ohlcv_data, order_book, on_chain=on_chain,
+            )
 
             if not signals:
                 logger.info(f"No trade signals for {symbol}")
@@ -401,6 +418,75 @@ class TradingBot:
             logger.error(f"Error processing {symbol}: {e}")
             await self.telegram.notify_error(symbol, str(e))
             return None
+
+    async def _fetch_on_chain_metrics(
+        self, symbol: str, ohlcv_data: dict,
+    ) -> OnChainMetrics:
+        """Gather OI, liquidations, volume flow, and mempool data."""
+        metrics = OnChainMetrics()
+        exchange = self.data_provider.exchange
+
+        # Get price change for OI signal interpretation
+        price_change = 0.0
+        for tf in ["5m", "15m", "1h"]:
+            if tf in ohlcv_data and len(ohlcv_data[tf]) >= 2:
+                closes = ohlcv_data[tf]["close"]
+                price_change = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                break
+
+        # Fetch OI, volume flow concurrently
+        import asyncio
+        oi_snap, vol_snap = await asyncio.gather(
+            self.oi_tracker.fetch_oi(exchange, symbol),
+            self.volume_flow.fetch_volume_flow(exchange, symbol),
+            return_exceptions=True,
+        )
+
+        if not isinstance(oi_snap, Exception) and oi_snap:
+            metrics.oi_change_pct = oi_snap.change_pct
+            metrics.oi_signal = oi_snap.signal
+
+        if not isinstance(vol_snap, Exception) and vol_snap:
+            metrics.volume_delta_pct = vol_snap.delta_pct
+            metrics.large_buy_count = vol_snap.large_buy_count
+            metrics.large_sell_count = vol_snap.large_sell_count
+
+        # Liquidation summary (already running in background WebSocket)
+        liq_summary = self.liq_tracker.get_summary(symbol)
+        metrics.liq_long_usd = liq_summary.long_liqs_usd
+        metrics.liq_short_usd = liq_summary.short_liqs_usd
+        metrics.liq_cascade = liq_summary.cascade_detected
+        metrics.liq_cascade_side = liq_summary.cascade_side
+
+        # Mempool scan for BTC only
+        mempool = None
+        if "BTC" in symbol:
+            btc_price = 100_000  # default
+            for tf in ["1h", "5m", "15m"]:
+                if tf in ohlcv_data and len(ohlcv_data[tf]) > 0:
+                    btc_price = float(ohlcv_data[tf]["close"].iloc[-1])
+                    break
+            mempool = await self.mempool.scan_mempool(btc_price)
+            metrics.mempool_whale_btc = mempool.total_whale_btc
+            metrics.mempool_exchange_bound = mempool.exchange_bound_count
+
+        # Compute composite score from all sources
+        oi_score = self.oi_tracker.get_oi_score(
+            oi_snap if not isinstance(oi_snap, Exception) else None,
+            price_change,
+        )
+        liq_score = self.liq_tracker.get_liq_score(liq_summary)
+        flow_score = self.volume_flow.get_flow_score(
+            vol_snap if not isinstance(vol_snap, Exception) else None,
+        )
+        from yanagiba.data.mempool import MempoolSummary
+        mempool_score = self.mempool.get_mempool_score(
+            mempool if mempool is not None else MempoolSummary(),
+        )
+
+        composite = oi_score + liq_score + flow_score + mempool_score
+        metrics.composite_score = max(-10, min(10, composite))
+        return metrics
 
     def _print_sentiment(self, report):
         table = Table(title="Geopolitical & News Sentiment")
@@ -684,6 +770,8 @@ class TradingBot:
 
     async def shutdown(self):
         self._running = False
+        await self.liq_tracker.stop()
+        await self.mempool.close()
         await self.telegram.notify_shutdown()
         await self.telegram.close()
         await self.data_provider.close()

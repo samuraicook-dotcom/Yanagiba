@@ -114,6 +114,40 @@ class ExecutionOrder:
 
 
 @dataclass
+class OnChainMetrics:
+    """Aggregated on-chain / order flow data for a symbol."""
+
+    oi_change_pct: float = 0.0  # open interest change %
+    oi_signal: str = ""  # "buildup" or "unwind"
+    liq_long_usd: float = 0.0  # long liquidations in USD
+    liq_short_usd: float = 0.0  # short liquidations in USD
+    liq_cascade: bool = False  # liquidation cascade detected
+    liq_cascade_side: str = ""  # which side got liquidated
+    volume_delta_pct: float = 0.0  # real buy-sell delta as % (-1 to +1)
+    large_buy_count: int = 0  # trades >$10K
+    large_sell_count: int = 0
+    mempool_whale_btc: float = 0.0  # BTC whale txs in mempool
+    mempool_exchange_bound: int = 0  # whale txs heading to exchanges
+    composite_score: float = 0.0  # combined signal (-10 to +10)
+
+    def to_dict(self) -> dict:
+        return {
+            "oi_change_pct": round(self.oi_change_pct, 2),
+            "oi_signal": self.oi_signal,
+            "liq_long_usd": round(self.liq_long_usd, 2),
+            "liq_short_usd": round(self.liq_short_usd, 2),
+            "liq_cascade": self.liq_cascade,
+            "liq_cascade_side": self.liq_cascade_side,
+            "volume_delta_pct": round(self.volume_delta_pct, 4),
+            "large_buy_count": self.large_buy_count,
+            "large_sell_count": self.large_sell_count,
+            "mempool_whale_btc": round(self.mempool_whale_btc, 4),
+            "mempool_exchange_bound": self.mempool_exchange_bound,
+            "composite_score": round(self.composite_score, 2),
+        }
+
+
+@dataclass
 class PortfolioState:
     total_value: float
     cash: float

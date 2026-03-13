@@ -7,7 +7,13 @@ import pandas as pd
 
 from yanagiba.indicators import technical
 from yanagiba.models.config import TradingConfig
-from yanagiba.models.types import Direction, MarketAnalysis, MarketRegime, TradeSignal
+from yanagiba.models.types import (
+    Direction,
+    MarketAnalysis,
+    MarketRegime,
+    OnChainMetrics,
+    TradeSignal,
+)
 
 
 class StrategyEngine:
@@ -22,6 +28,7 @@ class StrategyEngine:
         analysis: MarketAnalysis,
         ohlcv_by_timeframe: dict[str, pd.DataFrame],
         order_book: dict | None = None,
+        on_chain: OnChainMetrics | None = None,
     ) -> list[TradeSignal]:
         signals: list[TradeSignal] = []
 
@@ -52,6 +59,16 @@ class StrategyEngine:
                 scalp = self._scalp_setup(symbol, df, latest, tf, order_book)
                 if scalp:
                     signals.append(scalp)
+
+        # Liquidation cascade reversal signals
+        if on_chain and on_chain.liq_cascade:
+            cascade_sig = self._liquidation_cascade_signal(symbol, ohlcv_by_timeframe, on_chain)
+            if cascade_sig:
+                signals.append(cascade_sig)
+
+        # Boost/penalize confidence based on on-chain data
+        if on_chain:
+            signals = self._adjust_confidence_with_on_chain(signals, on_chain)
 
         # Deduplicate: keep highest confidence per direction
         return self._deduplicate(signals)
@@ -310,6 +327,94 @@ class StrategyEngine:
             )
 
         return None
+
+    def _liquidation_cascade_signal(
+        self, symbol: str, ohlcv_by_timeframe: dict[str, pd.DataFrame],
+        on_chain: OnChainMetrics,
+    ) -> TradeSignal | None:
+        """Generate a contrarian signal when a liquidation cascade is detected.
+
+        Long liquidation cascade = longs flushed out → potential bottom → go long.
+        Short liquidation cascade = shorts squeezed → potential top → go short.
+        """
+        # Use shortest available timeframe for entry
+        for tf in ["1m", "3m", "5m", "15m"]:
+            if tf in ohlcv_by_timeframe and len(ohlcv_by_timeframe[tf]) >= 20:
+                df = ohlcv_by_timeframe[tf]
+                break
+        else:
+            return None
+
+        df = technical.compute_all(df, self.config)
+        latest = df.iloc[-1]
+        close = latest["close"]
+        atr_val = latest["atr"]
+        if np.isnan(atr_val) or atr_val <= 0:
+            return None
+
+        if on_chain.liq_cascade_side == "long":
+            # Longs got liquidated → contrarian long (buy the flush)
+            sl = close - 2.0 * atr_val
+            tp1 = close + 3.0 * atr_val
+            tp2 = close + 5.0 * atr_val
+            rr = (tp1 - close) / (close - sl) if close > sl else 0
+            return TradeSignal(
+                asset=symbol, direction=Direction.LONG, entry=close,
+                stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
+                risk_reward=round(rr, 2), confidence_score=7.5,
+                strategy="liq_cascade_reversal_long", timeframe=tf,
+            )
+        elif on_chain.liq_cascade_side == "short":
+            # Shorts got liquidated → contrarian short (sell the squeeze)
+            sl = close + 2.0 * atr_val
+            tp1 = close - 3.0 * atr_val
+            tp2 = close - 5.0 * atr_val
+            rr = (close - tp1) / (sl - close) if sl > close else 0
+            return TradeSignal(
+                asset=symbol, direction=Direction.SHORT, entry=close,
+                stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
+                risk_reward=round(rr, 2), confidence_score=7.5,
+                strategy="liq_cascade_reversal_short", timeframe=tf,
+            )
+        return None
+
+    def _adjust_confidence_with_on_chain(
+        self, signals: list[TradeSignal], on_chain: OnChainMetrics,
+    ) -> list[TradeSignal]:
+        """Adjust signal confidence based on on-chain confirmation/divergence.
+
+        Confirming signals (same direction as on-chain flow) get a boost.
+        Divergent signals (against on-chain flow) get penalized.
+        """
+        for sig in signals:
+            boost = 0.0
+
+            # Volume flow confirmation
+            if sig.direction == Direction.LONG and on_chain.volume_delta_pct > 0.2:
+                boost += 0.5  # real buying pressure confirms long
+            elif sig.direction == Direction.SHORT and on_chain.volume_delta_pct < -0.2:
+                boost += 0.5  # real selling pressure confirms short
+            elif sig.direction == Direction.LONG and on_chain.volume_delta_pct < -0.3:
+                boost -= 0.5  # buying against heavy selling
+            elif sig.direction == Direction.SHORT and on_chain.volume_delta_pct > 0.3:
+                boost -= 0.5  # shorting against heavy buying
+
+            # OI buildup confirmation
+            if on_chain.oi_signal == "buildup":
+                boost += 0.3  # new money entering = higher conviction
+            elif on_chain.oi_signal == "unwind":
+                boost -= 0.3  # money leaving = lower conviction
+
+            # Large trade imbalance
+            large_diff = on_chain.large_buy_count - on_chain.large_sell_count
+            if sig.direction == Direction.LONG and large_diff >= 2:
+                boost += 0.5  # whales buying
+            elif sig.direction == Direction.SHORT and large_diff <= -2:
+                boost += 0.5  # whales selling
+
+            sig.confidence_score = round(max(1.0, min(10.0, sig.confidence_score + boost)), 1)
+
+        return signals
 
     def _deduplicate(self, signals: list[TradeSignal]) -> list[TradeSignal]:
         # Keep only the single highest-confidence signal per asset

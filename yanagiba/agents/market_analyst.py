@@ -7,7 +7,7 @@ import pandas as pd
 
 from yanagiba.indicators import technical
 from yanagiba.models.config import TradingConfig
-from yanagiba.models.types import MarketAnalysis, MarketRegime
+from yanagiba.models.types import MarketAnalysis, MarketRegime, OnChainMetrics
 
 
 class MarketAnalyst:
@@ -22,6 +22,7 @@ class MarketAnalyst:
         order_book: dict | None = None,
         funding_rate: float | None = None,
         symbol: str = "",
+        on_chain: OnChainMetrics | None = None,
     ) -> MarketAnalysis:
         scores: list[float] = []
         details: dict = {}
@@ -47,6 +48,11 @@ class MarketAnalyst:
             fr_score = -funding_rate * 100  # high funding = bearish (crowded long)
             scores.append(fr_score)
             details["funding_rate"] = funding_rate
+
+        # On-chain / order flow data (OI, liquidations, volume flow, mempool)
+        if on_chain is not None and on_chain.composite_score != 0:
+            scores.append(on_chain.composite_score)
+            details["on_chain"] = on_chain.to_dict()
 
         sentiment = float(np.clip(np.mean(scores) if scores else 0, -10, 10))
         regime = self._classify_regime(ohlcv_by_timeframe, sentiment, symbol)
