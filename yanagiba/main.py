@@ -86,14 +86,14 @@ class TradingBot:
                 data = json.loads(PORTFOLIO_FILE.read_text())
                 logger.info(f"Restored portfolio: ${data['total_value']:.2f}")
                 return PortfolioState(
-                    total_value=data.get("total_value", 49.0),
-                    cash=data.get("cash", 49.0),
+                    total_value=data.get("total_value", 0.0),
+                    cash=data.get("cash", 0.0),
                     total_exposure_pct=data.get("total_exposure_pct", 0.0),
                     daily_pnl=data.get("daily_pnl", 0.0),
                 )
             except Exception as e:
                 logger.warning(f"Could not restore portfolio: {e}")
-        return PortfolioState(total_value=49.0, cash=49.0)
+        return PortfolioState(total_value=0.0, cash=0.0)
 
     def _save_portfolio(self):
         """Persist portfolio state for crash recovery."""
@@ -108,6 +108,29 @@ class TradingBot:
         except Exception as e:
             logger.warning(f"Could not save portfolio: {e}")
 
+    async def _sync_balance(self):
+        """Sync portfolio value with actual exchange balance every cycle."""
+        if self.config.sandbox:
+            return
+        try:
+            balance = await self.data_provider.exchange.fetch_balance()
+            usdt = balance.get("USDT", {})
+            total = float(usdt.get("total", 0))
+            free = float(usdt.get("free", 0))
+            if total > 0:
+                self.portfolio.total_value = round(total, 2)
+                self.portfolio.cash = round(free, 2)
+                used = float(usdt.get("used", 0))
+                self.portfolio.total_exposure_pct = (
+                    round(used / total, 4) if total > 0 else 0.0
+                )
+                logger.info(
+                    f"Balance synced: ${total:.2f} total, "
+                    f"${free:.2f} free, ${used:.2f} in margin"
+                )
+        except Exception as e:
+            logger.warning(f"Balance sync failed (using cached): {e}")
+
     async def run_cycle(self) -> list[dict]:
         """Run one full analysis + trading cycle across all assets."""
         # Notify systemd watchdog (if running as service)
@@ -119,6 +142,9 @@ class TradingBot:
 
         # Ensure markets are loaded (needed for futures symbol resolution)
         await self.data_provider.load_markets()
+
+        # Sync portfolio with actual Binance balance
+        await self._sync_balance()
 
         cycle_results = []
         now = datetime.utcnow()
