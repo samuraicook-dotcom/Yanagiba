@@ -55,6 +55,10 @@
           <span class="nav-icon">&#9881;</span> Exchange & API
         </div>
 
+        <div class="nav-item" data-panel="onchain">
+          <span class="nav-icon">&#9878;</span> On-Chain Data
+        </div>
+
         <div class="nav-section-label">Markets</div>
         <div class="nav-item" data-panel="assets">
           <span class="nav-icon">&#9670;</span> Assets & Pairs
@@ -793,6 +797,112 @@
           <div class="add-tag-input">
             <input type="text" id="add-timeframe" placeholder="e.g. 2h">
             <button class="btn btn-sm btn-outline" onclick="addTag('timeframes', 'add-timeframe')">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ON-CHAIN DATA ============ -->
+      <div class="config-panel" id="panel-onchain">
+        <div class="page-header">
+          <h2>On-Chain Data Feeds</h2>
+          <p>Real-time order flow, liquidation tracking, and whale monitoring — all free, no API keys</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128200;</span> Open Interest Tracking</div>
+            <span class="card-badge badge-green">Free via ccxt</span>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Enable Open Interest Tracking</span>
+              <span class="desc">Detect leverage buildup/unwind across symbols. Rising OI + price move = trend confirmation.</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-enable_open_interest" {{ 'checked' if config.enable_open_interest }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9889;</span> Liquidation Stream</div>
+            <span class="card-badge badge-red">Real-time WebSocket</span>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Enable Liquidation Tracking</span>
+              <span class="desc">Stream forced liquidations from Binance + Bybit. Cascades trigger contrarian reversal signals.</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-enable_liquidation_stream" {{ 'checked' if config.enable_liquidation_stream }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label>Cascade Threshold (USD)</label>
+              <input type="number" id="cfg-liq_cascade_threshold_usd" step="10000" min="10000" max="1000000"
+                     value="{{ config.liq_cascade_threshold_usd }}">
+              <span class="hint">Min USD liquidated in 30s to trigger cascade signal (default: $100K)</span>
+            </div>
+            <div class="form-group">
+              <label>Aggregation Window (seconds)</label>
+              <input type="number" id="cfg-liq_window_seconds" step="30" min="60" max="900"
+                     value="{{ config.liq_window_seconds }}">
+              <span class="hint">Time window for liquidation aggregation (default: 300s / 5 min)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#128202;</span> Real Volume Flow</div>
+            <span class="card-badge badge-blue">Free via ccxt</span>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Enable Volume Flow Analysis</span>
+              <span class="desc">Fetch actual trades to compute real buy/sell pressure instead of guessing from candle color.</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-enable_volume_flow" {{ 'checked' if config.enable_volume_flow }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label>Large Trade Threshold (USD)</label>
+              <input type="number" id="cfg-volume_flow_large_threshold" step="1000" min="1000" max="100000"
+                     value="{{ config.volume_flow_large_threshold }}">
+              <span class="hint">Trades above this are counted as "whale" trades (default: $10K)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon">&#9670;</span> BTC Mempool Monitor</div>
+            <span class="card-badge badge-yellow">Blockchain.com (Free)</span>
+          </div>
+          <div class="toggle-group">
+            <div class="toggle-label">
+              <span class="name">Enable Mempool Whale Monitoring</span>
+              <span class="desc">Track large unconfirmed BTC transactions. Exchange-bound whales signal incoming sell pressure.</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="cfg-enable_mempool_monitor" {{ 'checked' if config.enable_mempool_monitor }}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label>Whale Threshold (BTC)</label>
+              <input type="number" id="cfg-mempool_whale_threshold_btc" step="1" min="1" max="100"
+                     value="{{ config.mempool_whale_threshold_btc }}">
+              <span class="hint">Min BTC per transaction to count as whale (default: 10 BTC)</span>
+            </div>
           </div>
         </div>
       </div>

@@ -135,3 +135,13 @@ class TradingConfig:
     trailing_stop_activation: float = 0.008  # activate after 0.8% profit
     trailing_stop_callback: float = 0.003  # trail by 0.3%
     min_confidence: float = 5.0  # require decent confidence to trade
+
+    # On-chain / order flow data providers (all free, no API keys)
+    enable_open_interest: bool = True  # OI tracking via ccxt
+    enable_liquidation_stream: bool = True  # Binance+Bybit liquidation WebSocket
+    enable_volume_flow: bool = True  # Real volume delta from trades
+    enable_mempool_monitor: bool = True  # BTC mempool whale monitoring
+    liq_cascade_threshold_usd: float = 100000  # USD threshold for cascade detection
+    liq_window_seconds: int = 300  # Liquidation aggregation window (5 min)
+    volume_flow_large_threshold: float = 10000  # USD threshold for "large" trade
+    mempool_whale_threshold_btc: float = 10.0  # BTC threshold for whale tx

@@ -79,9 +79,16 @@ class TradingBot:
         self.journal = TradeJournal()
         self.cme_gap = CMEGapTracker()
         self.oi_tracker = OpenInterestTracker()
-        self.liq_tracker = LiquidationTracker()
-        self.volume_flow = VolumeFlowTracker()
-        self.mempool = MempoolMonitor()
+        self.liq_tracker = LiquidationTracker(
+            window_seconds=self.config.liq_window_seconds,
+            cascade_threshold_usd=self.config.liq_cascade_threshold_usd,
+        )
+        self.volume_flow = VolumeFlowTracker(
+            large_trade_threshold_usd=self.config.volume_flow_large_threshold,
+        )
+        self.mempool = MempoolMonitor(
+            whale_threshold_btc=self.config.mempool_whale_threshold_btc,
+        )
         self.telegram = telegram or TelegramNotifier("", "")
         self.portfolio = self._load_portfolio()
         self._running = False
@@ -150,7 +157,8 @@ class TradingBot:
         await self.data_provider.load_markets()
 
         # Start liquidation WebSocket stream (idempotent — only starts once)
-        await self.liq_tracker.start()
+        if self.config.enable_liquidation_stream:
+            await self.liq_tracker.start()
 
         cycle_results = []
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -434,12 +442,20 @@ class TradingBot:
                 price_change = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
                 break
 
-        # Fetch OI, volume flow concurrently
+        # Fetch OI, volume flow concurrently (respecting enable flags)
         import asyncio
+        oi_coro = (
+            self.oi_tracker.fetch_oi(exchange, symbol)
+            if self.config.enable_open_interest
+            else asyncio.sleep(0)
+        )
+        vol_coro = (
+            self.volume_flow.fetch_volume_flow(exchange, symbol)
+            if self.config.enable_volume_flow
+            else asyncio.sleep(0)
+        )
         oi_snap, vol_snap = await asyncio.gather(
-            self.oi_tracker.fetch_oi(exchange, symbol),
-            self.volume_flow.fetch_volume_flow(exchange, symbol),
-            return_exceptions=True,
+            oi_coro, vol_coro, return_exceptions=True,
         )
 
         if not isinstance(oi_snap, Exception) and oi_snap:
@@ -458,9 +474,9 @@ class TradingBot:
         metrics.liq_cascade = liq_summary.cascade_detected
         metrics.liq_cascade_side = liq_summary.cascade_side
 
-        # Mempool scan for BTC only
+        # Mempool scan for BTC only (if enabled)
         mempool = None
-        if "BTC" in symbol:
+        if "BTC" in symbol and self.config.enable_mempool_monitor:
             btc_price = 100_000  # default
             for tf in ["1h", "5m", "15m"]:
                 if tf in ohlcv_data and len(ohlcv_data[tf]) > 0:

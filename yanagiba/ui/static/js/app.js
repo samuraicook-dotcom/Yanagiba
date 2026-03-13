@@ -81,6 +81,8 @@ function gatherFormData() {
     'maker_fee', 'taker_fee',
     'trailing_stop_activation', 'trailing_stop_callback',
     'weekend_position_scale',
+    'liq_cascade_threshold_usd', 'liq_window_seconds',
+    'volume_flow_large_threshold', 'mempool_whale_threshold_btc',
   ];
 
   numericFields.forEach(field => {
@@ -92,7 +94,7 @@ function gatherFormData() {
       }
       // Integer fields
       if (['ema_fast', 'ema_mid', 'ema_slow', 'rsi_period', 'macd_fast', 'macd_slow',
-           'macd_signal', 'bb_period', 'max_correlated_trades'].includes(field)) {
+           'macd_signal', 'bb_period', 'max_correlated_trades', 'liq_window_seconds'].includes(field)) {
         val = Math.round(val);
       }
       data[field] = val;
@@ -103,6 +105,8 @@ function gatherFormData() {
   const boolFields = [
     'use_limit_entry', 'use_trailing_stop', 'enable_gaming_sector',
     'use_session_filter', 'use_weekend_filter',
+    'enable_open_interest', 'enable_liquidation_stream',
+    'enable_volume_flow', 'enable_mempool_monitor',
   ];
 
   boolFields.forEach(field => {
