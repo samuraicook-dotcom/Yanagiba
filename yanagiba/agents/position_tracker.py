@@ -108,8 +108,14 @@ class PositionTracker:
         logger.info(f"TRACKING: {side.upper()} {quantity} {symbol} @ {entry_price}")
         return pos
 
-    async def sync_with_exchange(self, exchange, portfolio) -> list[dict]:
-        """Check exchange for position changes and update portfolio."""
+    async def sync_with_exchange(
+        self, exchange, portfolio, execution_engine=None,
+    ) -> list[dict]:
+        """Check exchange for position changes and update portfolio.
+
+        If execution_engine is provided, orphaned SL/TP orders are
+        automatically cancelled when a position closes.
+        """
         if not exchange:
             return []
 
@@ -138,6 +144,12 @@ class PositionTracker:
                     self.positions.remove(pos)
                     self.closed_positions.append(pos)
 
+                    # Cancel orphaned SL/TP orders for this symbol
+                    if execution_engine:
+                        await execution_engine.cancel_orders_for_symbol(
+                            exchange, pos.symbol,
+                        )
+
                     # Update portfolio
                     portfolio.cash += pos.margin_usd + pnl
                     portfolio.total_value += pnl
@@ -146,7 +158,9 @@ class PositionTracker:
                         pos.margin_usd / portfolio.total_value
                         if portfolio.total_value > 0 else 0
                     )
-                    portfolio.total_exposure_pct = max(0, portfolio.total_exposure_pct - margin_pct)
+                    portfolio.total_exposure_pct = max(
+                        0, portfolio.total_exposure_pct - margin_pct,
+                    )
 
                     close_type = "take_profit" if pnl > 0 else "stop_loss"
                     event = {

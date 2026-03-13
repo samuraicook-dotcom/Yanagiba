@@ -348,6 +348,88 @@ class ExecutionEngine:
         self.pending_orders.clear()
         return cancelled
 
+    async def cancel_orders_for_symbol(
+        self, exchange, symbol: str,
+    ) -> int:
+        """Cancel ALL open orders for a specific symbol.
+
+        Called when a position closes to clean up orphaned SL/TP orders.
+        Returns the number of orders cancelled.
+        """
+        if not exchange or self.config.sandbox:
+            return 0
+
+        cancelled = 0
+        try:
+            futures_symbol = symbol
+            swap_symbol = f"{symbol}:USDT"
+            if exchange.markets and swap_symbol in exchange.markets:
+                futures_symbol = swap_symbol
+
+            open_orders = await exchange.fetch_open_orders(futures_symbol)
+            for order in open_orders:
+                try:
+                    order_id = order.get("id", "")
+                    order_type = order.get("type", "unknown")
+                    await exchange.cancel_order(order_id, futures_symbol)
+                    cancelled += 1
+                    logger.info(
+                        f"Cancelled orphaned {order_type} order "
+                        f"{order_id} for {symbol}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to cancel order {order.get('id')} "
+                        f"for {symbol}: {e}"
+                    )
+            if cancelled:
+                logger.info(
+                    f"Cleaned up {cancelled} orphaned orders for {symbol}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not fetch orders for {symbol}: {e}")
+        return cancelled
+
+    async def cancel_all_orphaned_orders(self, exchange, open_symbols: set[str]) -> int:
+        """Cancel all open orders for symbols that have no open position.
+
+        Called on startup to clean up orders left from previous runs.
+        """
+        if not exchange or self.config.sandbox:
+            return 0
+
+        cancelled = 0
+        try:
+            all_orders = await exchange.fetch_open_orders()
+            symbols_to_cancel: set[str] = set()
+            for order in all_orders:
+                sym = order.get("symbol", "")
+                # Normalize: BTC/USDT:USDT -> BTC/USDT
+                base_sym = sym.replace(":USDT", "")
+                if base_sym not in open_symbols and sym not in open_symbols:
+                    symbols_to_cancel.add(sym)
+
+            for sym in symbols_to_cancel:
+                try:
+                    orders = await exchange.fetch_open_orders(sym)
+                    for order in orders:
+                        try:
+                            await exchange.cancel_order(order["id"], sym)
+                            cancelled += 1
+                        except Exception as e:
+                            logger.warning(f"Cancel failed: {e}")
+                except Exception as e:
+                    logger.warning(f"Fetch orders for {sym} failed: {e}")
+
+            if cancelled:
+                logger.info(
+                    f"Startup cleanup: cancelled {cancelled} orphaned "
+                    f"orders across {len(symbols_to_cancel)} symbols"
+                )
+        except Exception as e:
+            logger.warning(f"Orphaned order cleanup failed: {e}")
+        return cancelled
+
     def clear_cycle_data(self):
         """Reset per-cycle order lists to prevent unbounded growth."""
         self.pending_orders.clear()

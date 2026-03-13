@@ -133,6 +133,7 @@ class TradingBot:
         else:
             events = await self.position_tracker.sync_with_exchange(
                 self.data_provider.exchange, self.portfolio,
+                execution_engine=self.executor,
             )
         for ev in events:
             logger.info(f"POSITION EVENT: {ev}")
@@ -498,9 +499,23 @@ class TradingBot:
         max_backoff = 300  # 5 min cap on failure backoff
 
         console.print("[bold green]Yanagiba Trading Bot started[/]")
-        console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
+        console.print(
+            f"  Exchange: {self.config.exchange} "
+            f"({'sandbox' if self.config.sandbox else 'LIVE'})"
+        )
         console.print(f"  Assets: {', '.join(self.config.assets)}")
         console.print(f"  Interval: {interval_seconds}s")
+
+        # Startup: cancel orphaned orders from previous runs
+        if not self.config.sandbox:
+            open_syms = {p.symbol for p in self.position_tracker.positions}
+            cleaned = await self.executor.cancel_all_orphaned_orders(
+                self.data_provider.exchange, open_syms,
+            )
+            if cleaned:
+                console.print(
+                    f"  [yellow]Cleaned {cleaned} orphaned orders[/]"
+                )
         console.print(f"  Telegram: {'enabled' if self.telegram.enabled else 'disabled'}")
         console.print()
         await self.telegram.notify_startup(
