@@ -121,7 +121,20 @@ class TradingBot:
         await self.data_provider.load_markets()
 
         cycle_results = []
-        timestamp = datetime.utcnow().isoformat()
+        now = datetime.utcnow()
+        timestamp = now.isoformat()
+
+        # Reset daily PnL at midnight UTC
+        last_date = getattr(self, "_last_cycle_date", None)
+        today = now.date()
+        if last_date is not None and today != last_date:
+            logger.info(
+                f"New day ({today}) — resetting daily PnL "
+                f"(was ${self.portfolio.daily_pnl:+.2f})"
+            )
+            self.portfolio.daily_pnl = 0.0
+            self.portfolio.daily_loss_pct = 0.0
+        self._last_cycle_date = today
 
         console.rule(f"[bold cyan]Yanagiba Cycle — {timestamp}")
 
@@ -198,8 +211,8 @@ class TradingBot:
         if stale:
             logger.info(f"Cleared {stale} stale orders")
 
-        # Reset correlation guard and execution lists for new cycle
-        self.risk.clear_cycle_trades()
+        # Reset correlation guard (populate from open positions) and execution lists
+        self.risk.clear_cycle_trades(self.position_tracker.positions)
         self.execution.clear_cycle_data()
 
         for symbol in all_assets:

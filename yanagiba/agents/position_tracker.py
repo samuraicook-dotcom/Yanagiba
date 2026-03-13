@@ -150,17 +150,19 @@ class PositionTracker:
                             exchange, pos.symbol,
                         )
 
-                    # Update portfolio
-                    portfolio.cash += pos.margin_usd + pnl
-                    portfolio.total_value += pnl
-                    portfolio.daily_pnl += pnl
+                    # Update portfolio — calc margin BEFORE changing total_value
                     margin_pct = (
                         pos.margin_usd / portfolio.total_value
                         if portfolio.total_value > 0 else 0
                     )
+                    portfolio.cash += pos.margin_usd + pnl
+                    portfolio.total_value += pnl
+                    portfolio.daily_pnl += pnl
                     portfolio.total_exposure_pct = max(
                         0, portfolio.total_exposure_pct - margin_pct,
                     )
+                    # Update daily loss percentage
+                    self._update_daily_loss_pct(portfolio)
 
                     close_type = "take_profit" if pnl > 0 else "stop_loss"
                     event = {
@@ -203,17 +205,18 @@ class PositionTracker:
                         pos.realized_pnl += partial_pnl
                         self.total_realized_pnl += partial_pnl
 
-                        # Update portfolio with partial close proceeds
-                        portfolio.cash += closed_margin + partial_pnl
-                        portfolio.total_value += partial_pnl
-                        portfolio.daily_pnl += partial_pnl
+                        # Update portfolio — calc margin BEFORE changing total
                         margin_pct = (
                             closed_margin / portfolio.total_value
                             if portfolio.total_value > 0 else 0
                         )
+                        portfolio.cash += closed_margin + partial_pnl
+                        portfolio.total_value += partial_pnl
+                        portfolio.daily_pnl += partial_pnl
                         portfolio.total_exposure_pct = max(
                             0, portfolio.total_exposure_pct - margin_pct,
                         )
+                        self._update_daily_loss_pct(portfolio)
 
                         pct_label = f"{closed_pct:.0%}"
                         event = {
@@ -241,6 +244,16 @@ class PositionTracker:
             self._save_positions()
         return events
 
+    @staticmethod
+    def _update_daily_loss_pct(portfolio) -> None:
+        """Compute daily_loss_pct from daily_pnl."""
+        if portfolio.total_value > 0 and portfolio.daily_pnl < 0:
+            portfolio.daily_loss_pct = (
+                abs(portfolio.daily_pnl) / portfolio.total_value
+            )
+        else:
+            portfolio.daily_loss_pct = 0.0
+
     async def _get_last_price(self, exchange, symbol: str) -> float:
         """Fetch the last traded price for a symbol."""
         try:
@@ -260,20 +273,33 @@ class PositionTracker:
             except Exception:
                 trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
 
-            # Sum realized PnL from recent trades (partial TP fills)
+            # Sum realized PnL from recent trades — only after position opened
             total_pnl = 0.0
             found = False
             for t in reversed(trades):
+                # Filter: only trades after this position opened
+                t_time = t.get("timestamp", 0)
+                if pos.opened_at:
+                    from datetime import datetime as dt
+                    try:
+                        opened_ms = dt.fromisoformat(pos.opened_at).timestamp() * 1000
+                        if t_time < opened_ms:
+                            break  # older than our position
+                    except (ValueError, TypeError):
+                        pass
                 info = t.get("info", {})
                 realized = float(info.get("realizedPnl", 0))
                 if realized != 0:
                     total_pnl += realized
                     found = True
-                    # Only look at the most recent batch of fills
-                    if found and realized == 0:
-                        break
+                elif found:
+                    # End of the recent batch of fills
+                    break
             if found:
-                logger.info(f"Partial close PnL for {pos.symbol}: ${total_pnl:+.4f}")
+                logger.info(
+                    f"Partial close PnL for {pos.symbol}: "
+                    f"${total_pnl:+.4f}"
+                )
                 return total_pnl
         except Exception as e:
             logger.debug(f"Could not fetch partial PnL for {pos.symbol}: {e}")
@@ -297,11 +323,22 @@ class PositionTracker:
         Falls back to price-based estimation if the exchange API fails.
         """
         try:
-            # Fetch recent closed orders / trades for this symbol
             trades = await exchange.fetch_my_trades(pos.symbol, limit=20)
             relevant_pnl = 0.0
             found_close = False
             for t in reversed(trades):
+                # Filter: only trades after this position opened
+                t_time = t.get("timestamp", 0)
+                if pos.opened_at:
+                    from datetime import datetime as dt
+                    try:
+                        opened_ms = (
+                            dt.fromisoformat(pos.opened_at).timestamp() * 1000
+                        )
+                        if t_time < opened_ms:
+                            break
+                    except (ValueError, TypeError):
+                        pass
                 info = t.get("info", {})
                 realized = float(info.get("realizedPnl", 0))
                 if realized != 0:
@@ -368,16 +405,18 @@ class PositionTracker:
                     self.positions.remove(pos)
                     self.closed_positions.append(pos)
 
-                    portfolio.cash += pos.margin_usd + pnl
-                    portfolio.total_value += pnl
-                    portfolio.daily_pnl += pnl
+                    # Calc margin BEFORE changing total_value
                     margin_pct = (
                         pos.margin_usd / portfolio.total_value
                         if portfolio.total_value > 0 else 0
                     )
+                    portfolio.cash += pos.margin_usd + pnl
+                    portfolio.total_value += pnl
+                    portfolio.daily_pnl += pnl
                     portfolio.total_exposure_pct = max(
                         0, portfolio.total_exposure_pct - margin_pct,
                     )
+                    self._update_daily_loss_pct(portfolio)
 
                     event = {
                         "type": f"sandbox_{hit}",

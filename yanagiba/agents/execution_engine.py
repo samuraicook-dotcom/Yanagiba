@@ -115,6 +115,12 @@ class ExecutionEngine:
         else:
             priority = "LOW"
 
+        # Round to exchange step size (use min_qty as step)
+        step = MIN_QTY.get(signal.asset, 0.001)
+        if step > 0 and position_size > 0:
+            import math
+            position_size = math.floor(position_size / step) * step
+
         plan = ExecutionPlan(
             order_type="LIMIT",
             side=side,
@@ -122,7 +128,7 @@ class ExecutionEngine:
             entry=signal.entry,
             stop=signal.stop_loss,
             take_profit_levels=tp_levels,
-            position_size=round(position_size, 6),
+            position_size=round(position_size, 8),
             execution_priority=priority,
         )
         self.pending_orders.append(plan)
@@ -263,19 +269,22 @@ class ExecutionEngine:
                     except Exception as e:
                         logger.error(f"Failed to set TP at {tp}: {e}")
 
-                # Trailing stop: if enabled, set callback rate on exchange
+                # Trailing stop: if enabled, cover only the TP2 portion (40%)
+                # TP1 (60%) is handled by the limit TP order above
                 if self.config.use_trailing_stop:
                     try:
                         activation_price = self._trailing_activation_price(
                             plan.side, order.entry,
                             self.config.trailing_stop_activation,
                         )
-                        callback_rate = self.config.trailing_stop_callback * 100  # Binance uses %
+                        callback_rate = self.config.trailing_stop_callback * 100
+                        # Only trail the TP2 portion (40%) to avoid conflict
+                        trail_size = round(plan.position_size * 0.4, 6)
                         await exchange.create_order(
                             symbol=futures_symbol,
                             type="TRAILING_STOP_MARKET",
                             side=sl_side,
-                            amount=plan.position_size,
+                            amount=trail_size,
                             params={
                                 "activationPrice": activation_price,
                                 "callbackRate": round(callback_rate, 1),
@@ -283,11 +292,14 @@ class ExecutionEngine:
                             },
                         )
                         logger.info(
-                            f"Trailing stop set: activates at {activation_price:.2f}, "
+                            f"Trailing stop set: {trail_size} units, "
+                            f"activates at {activation_price:.2f}, "
                             f"callback {callback_rate:.1f}%"
                         )
                     except Exception as e:
-                        logger.warning(f"Trailing stop not supported or failed: {e}")
+                        logger.warning(
+                            f"Trailing stop not supported or failed: {e}"
+                        )
 
             except Exception as e:
                 order.status = f"error: {e}"

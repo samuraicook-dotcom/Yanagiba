@@ -12,8 +12,9 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     loss = -delta.where(delta < 0, 0.0)
     avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
     avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    # Guard: when both avg_gain and avg_loss are 0 (flat price), RSI = 50
+    rs = np.where(avg_loss == 0, np.where(avg_gain == 0, 1.0, np.inf), avg_gain / avg_loss)
+    return pd.Series(100 - (100 / (1 + rs)), index=series.index)
 
 
 def ema(series: pd.Series, period: int) -> pd.Series:
@@ -35,7 +36,8 @@ def bollinger_bands(
     series: pd.Series, period: int = 20, std_dev: float = 2.0
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
     middle = series.rolling(window=period).mean()
-    std = series.rolling(window=period).std()
+    # Use population std (ddof=0) — standard for Bollinger Bands
+    std = series.rolling(window=period).std(ddof=0)
     upper = middle + std_dev * std
     lower = middle - std_dev * std
     return upper, middle, lower
@@ -46,13 +48,25 @@ def vwap(df: pd.DataFrame) -> pd.Series:
     typical_price = (df["high"] + df["low"] + df["close"]) / 3
     cumulative_tp_vol = (typical_price * df["volume"]).cumsum()
     cumulative_vol = df["volume"].cumsum()
-    return cumulative_tp_vol / cumulative_vol
+    # Guard: avoid division by zero on zero-volume data
+    return cumulative_tp_vol / cumulative_vol.replace(0, np.nan)
 
 
 def volume_delta(df: pd.DataFrame) -> pd.Series:
-    """Estimate volume delta: positive volume on up candles, negative on down."""
-    direction = np.sign(df["close"] - df["open"])
-    return df["volume"] * direction
+    """Estimate volume delta: positive volume on up candles, negative on down.
+
+    Doji candles (open == close) use high/low wick ratio to estimate direction.
+    """
+    diff = df["close"] - df["open"]
+    # For doji candles: use (close - low) / (high - low) to estimate bias
+    hl_range = df["high"] - df["low"]
+    wick_ratio = np.where(
+        hl_range > 0,
+        (df["close"] - df["low"]) / hl_range * 2 - 1,  # -1 to +1
+        0,
+    )
+    direction = np.where(diff != 0, np.sign(diff), wick_ratio)
+    return df["volume"] * pd.Series(direction, index=df.index)
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:

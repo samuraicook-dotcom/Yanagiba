@@ -190,12 +190,25 @@ class RiskManager:
                 )
 
         # Weekend scaling — reduce position size on Sat/Sun
+        # Re-check min notional AFTER scaling to avoid sub-$5 orders
         if is_weekend and self.config.use_weekend_filter:
-            position_size_pct *= self.config.weekend_position_scale
-            logger.info(
-                f"Weekend: scaled position to "
-                f"{self.config.weekend_position_scale:.0%}"
-            )
+            scaled = position_size_pct * self.config.weekend_position_scale
+            scaled_value = portfolio.total_value * scaled
+            if scaled_value >= min_notional:
+                position_size_pct = scaled
+                logger.info(
+                    f"Weekend: scaled position to "
+                    f"{self.config.weekend_position_scale:.0%}"
+                )
+            else:
+                logger.info(
+                    f"Weekend: skipping scale (would drop below "
+                    f"${min_notional} min notional)"
+                )
+
+        # Recalculate max_loss to match actual position after all adjustments
+        actual_value = portfolio.total_value * position_size_pct
+        max_loss = actual_value * sl_distance_pct
 
         # Determine risk score
         risk_score = RiskLevel.LOW
@@ -223,9 +236,19 @@ class RiskManager:
             ),
         )
 
-    def clear_cycle_trades(self):
-        """Reset active trades at start of each cycle."""
+    def clear_cycle_trades(self, open_positions=None):
+        """Reset and repopulate from open positions for cross-cycle tracking."""
         self.active_trades.clear()
+        if open_positions:
+            for pos in open_positions:
+                direction = (
+                    Direction.LONG if pos.side == "buy"
+                    else Direction.SHORT
+                )
+                self.active_trades.append({
+                    "asset": pos.symbol,
+                    "direction": direction,
+                })
 
     def remove_closed_trade(self, asset: str):
         """Remove a trade from active tracking when it closes."""

@@ -214,4 +214,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("YANAGIBA_UI_PORT", 5000))
     print("\n  Yanagiba Trading Bot Dashboard")
     print(f"  http://localhost:{port}\n")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)

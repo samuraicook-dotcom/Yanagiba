@@ -24,6 +24,8 @@ class StrategyEngine:
         order_book: dict | None = None,
     ) -> list[TradeSignal]:
         signals: list[TradeSignal] = []
+        # Sentiment modifier: penalize/boost confidence based on sentiment
+        sentiment = analysis.sentiment_score  # -10 to +10
 
         for tf, df in ohlcv_by_timeframe.items():
             if len(df) < 50:
@@ -54,7 +56,20 @@ class StrategyEngine:
                     signals.append(scalp)
 
         # Deduplicate: keep highest confidence per direction
-        return self._deduplicate(signals)
+        deduped = self._deduplicate(signals)
+
+        # Apply sentiment modifier: boost/penalize based on alignment
+        for sig in deduped:
+            if sentiment > 3 and sig.direction == Direction.LONG:
+                sig.confidence_score = min(sig.confidence_score + 0.5, 10)
+            elif sentiment < -3 and sig.direction == Direction.SHORT:
+                sig.confidence_score = min(sig.confidence_score + 0.5, 10)
+            elif sentiment > 3 and sig.direction == Direction.SHORT:
+                sig.confidence_score = max(sig.confidence_score - 1.0, 1)
+            elif sentiment < -3 and sig.direction == Direction.LONG:
+                sig.confidence_score = max(sig.confidence_score - 1.0, 1)
+
+        return deduped
 
     def _trending_long(
         self, symbol: str, df: pd.DataFrame, latest: pd.Series, tf: str
@@ -76,10 +91,15 @@ class StrategyEngine:
                 tp1 = close + 3 * atr_val   # bigger TP
                 tp2 = close + 5 * atr_val
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
+                # Dynamic confidence: RSI quality + volume + MACD
+                conf = self._trend_confidence(
+                    latest, df, is_long=True,
+                )
                 return TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(conf, 1),
                     strategy="ema_pullback_long", timeframe=tf,
                 )
         return None
@@ -103,10 +123,14 @@ class StrategyEngine:
                 tp1 = close - 3 * atr_val
                 tp2 = close - 5 * atr_val
                 rr = (close - tp1) / (sl - close) if sl > close else 0
+                conf = self._trend_confidence(
+                    latest, df, is_long=False,
+                )
                 return TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(conf, 1),
                     strategy="ema_pullback_short", timeframe=tf,
                 )
         return None
@@ -122,16 +146,27 @@ class StrategyEngine:
 
         # Mean reversion: Bollinger band proximity (wider zone = more setups)
         if not np.isnan(latest["bb_lower"]) and not np.isnan(latest["bb_upper"]):
+            rsi_val = latest["rsi"]
+            rsi_ranging = (
+                not np.isnan(rsi_val) and 35 < rsi_val < 65
+            )
             # Long near lower band (1.5% zone above lower band)
             if close <= latest["bb_lower"] * 1.015:
                 sl = close - 1.0 * atr_val  # tighter SL
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_upper"]
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
+                # Dynamic: RSI confirming oversold bounce + ranging
+                bb_conf = 6.0
+                if rsi_ranging:
+                    bb_conf += 1.0
+                if not np.isnan(rsi_val) and rsi_val < 40:
+                    bb_conf += 0.5  # deeper oversold = better bounce
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.LONG, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(min(bb_conf, 10), 1),
                     strategy="bb_mean_reversion_long", timeframe=tf,
                 ))
             # Short near upper band (1.5% zone below upper band)
@@ -140,19 +175,29 @@ class StrategyEngine:
                 tp1 = latest["bb_mid"]
                 tp2 = latest["bb_lower"]
                 rr = (close - tp1) / (sl - close) if sl > close else 0
+                bb_conf = 6.0
+                if rsi_ranging:
+                    bb_conf += 1.0
+                if not np.isnan(rsi_val) and rsi_val > 60:
+                    bb_conf += 0.5
                 signals.append(TradeSignal(
                     asset=symbol, direction=Direction.SHORT, entry=close,
                     stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                    risk_reward=round(rr, 2), confidence_score=7.0,
+                    risk_reward=round(rr, 2),
+                    confidence_score=round(min(bb_conf, 10), 1),
                     strategy="bb_mean_reversion_short", timeframe=tf,
                 ))
 
         # VWAP bounce (ATR-scaled zone, bigger targets)
         if not np.isnan(latest["vwap"]):
             vwap_dist = abs(close - latest["vwap"]) / close
-            vwap_zone = min(atr_val / close, 0.015)  # dynamic zone based on volatility
-            if vwap_dist < vwap_zone:
-                direction = Direction.LONG if latest.get("volume_delta", 0) > 0 else Direction.SHORT
+            vwap_zone = min(atr_val / close, 0.015)
+            vd = latest.get("volume_delta", 0)
+            # Skip doji candles — no clear direction
+            if pd.isna(vd):
+                vd = 0
+            if vwap_dist < vwap_zone and vd != 0:
+                direction = Direction.LONG if vd > 0 else Direction.SHORT
                 if direction == Direction.LONG:
                     sl = close - 1.0 * atr_val
                     tp1 = close + 3 * atr_val
@@ -182,32 +227,51 @@ class StrategyEngine:
             return signals
 
         # Liquidity sweep: price wicks beyond recent high/low then reverses
-        recent_high = df["high"].tail(20).max()
-        recent_low = df["low"].tail(20).min()
+        # Exclude current candle to avoid self-comparison
+        if len(df) < 21:
+            return signals
+        vd = latest.get("volume_delta", 0)
+        if pd.isna(vd):
+            vd = 0
+        recent_high = df["high"].iloc[-21:-1].max()
+        recent_low = df["low"].iloc[-21:-1].min()
 
-        if close < recent_high * 0.998 and latest["high"] >= recent_high * 0.999:
+        if (
+            close < recent_high * 0.998
+            and latest["high"] >= recent_high * 0.999
+        ):
             # Swept highs, potential short
             sl = recent_high + 0.5 * atr_val
             tp1 = close - 3 * atr_val
             tp2 = close - 5 * atr_val
             rr = (close - tp1) / (sl - close) if sl > close else 0
+            # Dynamic: wick depth + volume confirm reversal
+            wick_pct = (latest["high"] - close) / close if close > 0 else 0
+            sweep_conf = min(5.5 + wick_pct * 100 + (1 if vd < 0 else 0), 9)
             signals.append(TradeSignal(
                 asset=symbol, direction=Direction.SHORT, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                risk_reward=round(rr, 2), confidence_score=6.0,
+                risk_reward=round(rr, 2),
+                confidence_score=round(sweep_conf, 1),
                 strategy="liquidity_sweep_short", timeframe=tf,
             ))
 
-        if close > recent_low * 1.002 and latest["low"] <= recent_low * 1.001:
+        if (
+            close > recent_low * 1.002
+            and latest["low"] <= recent_low * 1.001
+        ):
             # Swept lows, potential long
             sl = recent_low - 0.5 * atr_val
             tp1 = close + 3 * atr_val
             tp2 = close + 5 * atr_val
             rr = (tp1 - close) / (close - sl) if close > sl else 0
+            wick_pct = (close - latest["low"]) / close if close > 0 else 0
+            sweep_conf = min(5.5 + wick_pct * 100 + (1 if vd > 0 else 0), 9)
             signals.append(TradeSignal(
                 asset=symbol, direction=Direction.LONG, entry=close,
                 stop_loss=sl, take_profit_1=tp1, take_profit_2=tp2,
-                risk_reward=round(rr, 2), confidence_score=7.0,
+                risk_reward=round(rr, 2),
+                confidence_score=round(sweep_conf, 1),
                 strategy="liquidity_sweep_long", timeframe=tf,
             ))
 
@@ -294,6 +358,39 @@ class StrategyEngine:
 
         return None
 
+    @staticmethod
+    def _trend_confidence(
+        latest: pd.Series, df: pd.DataFrame, is_long: bool,
+    ) -> float:
+        """Dynamic confidence for trend-following strategies.
+
+        Scores RSI quality, volume delta confirmation, and MACD alignment.
+        """
+        conf = 5.5
+        rsi_val = latest["rsi"]
+        # RSI sweet spot: 50-65 for longs, 35-50 for shorts
+        if not np.isnan(rsi_val):
+            if is_long:
+                quality = max(0, 1.0 - abs(rsi_val - 57) / 20)
+            else:
+                quality = max(0, 1.0 - abs(rsi_val - 43) / 20)
+            conf += quality * 1.5
+
+        # Volume delta confirmation (last 3 candles)
+        recent_vd = df["volume_delta"].tail(3).sum(min_count=1)
+        if not np.isnan(recent_vd):
+            if (is_long and recent_vd > 0) or (not is_long and recent_vd < 0):
+                conf += 1.0
+
+        # MACD alignment
+        if not np.isnan(latest["macd_hist"]):
+            if (is_long and latest["macd_hist"] > 0) or (
+                not is_long and latest["macd_hist"] < 0
+            ):
+                conf += 0.5
+
+        return min(conf, 10)
+
     def _deduplicate(self, signals: list[TradeSignal]) -> list[TradeSignal]:
         # Keep only the single highest-confidence signal per asset
         # Prevents contradictory LONG + SHORT on the same pair
@@ -302,4 +399,7 @@ class StrategyEngine:
             key = sig.asset
             if key not in best or sig.confidence_score > best[key].confidence_score:
                 best[key] = sig
-        return sorted(best.values(), key=lambda s: s.confidence_score, reverse=True)
+        return sorted(
+            best.values(),
+            key=lambda s: s.confidence_score, reverse=True,
+        )

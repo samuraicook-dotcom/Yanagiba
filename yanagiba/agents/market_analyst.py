@@ -98,11 +98,11 @@ class MarketAnalyst:
             else:
                 score -= 1
 
-        # Volume delta
-        recent_vd = df["volume_delta"].tail(5).sum()
-        if recent_vd > 0:
+        # Volume delta (guard NaN with min_count)
+        recent_vd = df["volume_delta"].tail(5).sum(min_count=1)
+        if not np.isnan(recent_vd) and recent_vd > 0:
             score += 1
-        elif recent_vd < 0:
+        elif not np.isnan(recent_vd) and recent_vd < 0:
             score -= 1
 
         # Weight shorter timeframes MORE for scalping (this is an intraday bot)
