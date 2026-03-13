@@ -41,18 +41,18 @@ class TradingConfig:
         default_factory=lambda: ["1m", "3m", "5m"]
     )
 
-    # Risk limits (micro account ~$50, needs leverage to meet minimums)
-    max_portfolio_risk: float = 0.80  # 80% max margin exposure
-    max_risk_per_trade: float = 0.03  # 3% risk per trade ($1.50 on $50 — survive 10 losses)
-    max_leverage: float = 20.0  # up to 20x leverage (needed to meet $5 min notional)
-    daily_loss_limit: float = 0.06  # 6% daily loss cap ($3 on $50 — live to trade tomorrow)
-    scalp_stop_loss: float = 0.004  # 0.4% for scalping (tighter = more trades survive)
-    scalp_take_profit_min: float = 0.012  # 1.2% TP1 (3:1 R:R with 0.4% SL)
-    scalp_take_profit_max: float = 0.025  # 2.5% TP2
-    scalp_position_size: float = 0.10  # 10% of portfolio per scalp ($5)
+    # Risk limits (micro account ~$25, conservative capital preservation)
+    max_portfolio_risk: float = 0.15  # 15% max margin exposure (max 2-3 small positions)
+    max_risk_per_trade: float = 0.01  # 1% risk per trade ($0.25 on $25 — survive 30+ losses)
+    max_leverage: float = 5.0  # 5x max leverage (enough for min notional, not reckless)
+    daily_loss_limit: float = 0.03  # 3% daily loss cap ($0.75 — shut down early on bad days)
+    scalp_stop_loss: float = 0.005  # 0.5% for scalping
+    scalp_take_profit_min: float = 0.015  # 1.5% TP1 (3:1 R:R with 0.5% SL)
+    scalp_take_profit_max: float = 0.030  # 3.0% TP2
+    scalp_position_size: float = 0.05  # 5% of portfolio per scalp
 
     # R:R and confidence thresholds
-    min_risk_reward: float = 1.8  # minimum R:R to take a trade (need ~36% win rate)
+    min_risk_reward: float = 2.0  # minimum R:R to take a trade (need ~34% win rate)
 
     # Indicator params
     rsi_period: int = 14
@@ -94,13 +94,13 @@ class TradingConfig:
                 "scalp_stop_loss": 0.003,  # 0.3% (BTC is tighter)
                 "scalp_take_profit_min": 0.009,  # 0.9% TP1
                 "scalp_take_profit_max": 0.018,  # 1.8% TP2
-                "max_leverage": 10.0,  # BTC: lower leverage, more predictable
+                "max_leverage": 5.0,  # BTC: conservative
             },
             "ETH/USDT": {
                 "scalp_stop_loss": 0.004,  # 0.4%
                 "scalp_take_profit_min": 0.012,
                 "scalp_take_profit_max": 0.024,
-                "max_leverage": 15.0,  # ETH: moderate leverage
+                "max_leverage": 5.0,  # ETH: conservative
             },
         }
     )
@@ -134,4 +134,4 @@ class TradingConfig:
     use_trailing_stop: bool = True
     trailing_stop_activation: float = 0.008  # activate after 0.8% profit
     trailing_stop_callback: float = 0.003  # trail by 0.3%
-    min_confidence: float = 5.0  # require decent confidence to trade
+    min_confidence: float = 6.5  # only take higher-confidence setups
