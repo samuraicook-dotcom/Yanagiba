@@ -69,6 +69,8 @@ class PositionTracker:
             try:
                 data = json.loads(POSITIONS_FILE.read_text())
                 for d in data:
+                    if d.get("status", "open") != "open":
+                        continue  # skip closed/errored positions
                     self.positions.append(TrackedPosition(**d))
                 if self.positions:
                     logger.info(f"Restored {len(self.positions)} open positions from disk")
@@ -142,10 +144,12 @@ class PositionTracker:
 
                 if check_sym not in open_symbols:
                     # Position fully closed — fetch real PnL and last price
-                    pnl = await self._fetch_real_pnl(exchange, pos)
+                    raw_pnl = await self._fetch_real_pnl(exchange, pos)
+                    # Subtract already-counted partial PnL to avoid double-counting
+                    pnl = raw_pnl - pos.realized_pnl
                     last_price = await self._get_last_price(exchange, pos.symbol)
                     pos.status = "closed"
-                    pos.realized_pnl = pnl
+                    pos.realized_pnl = raw_pnl
                     self.total_realized_pnl += pnl
                     self.positions.remove(pos)
                     self.closed_positions.append(pos)
@@ -329,7 +333,10 @@ class PositionTracker:
         Falls back to price-based estimation if the exchange API fails.
         """
         try:
-            futures_sym = f"{pos.symbol}:USDT"
+            futures_sym = (
+                pos.symbol if ":USDT" in pos.symbol
+                else f"{pos.symbol}:USDT"
+            )
             try:
                 trades = await exchange.fetch_my_trades(futures_sym, limit=20)
             except Exception:
