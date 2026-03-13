@@ -791,6 +791,140 @@ function stopLiveRefresh() {
   }
 }
 
+// ============================================
+//  CONNECT FOUR MULTIPLAYER GAME
+// ============================================
+
+let c4MyPlayer = 0;  // 0=spectator, 1=red, 2=yellow
+let c4PlayerId = 'p_' + Math.random().toString(36).substring(2, 10);
+let c4LastUpdate = 0;
+let c4PollInterval = null;
+
+function c4BuildBoard() {
+  const board = document.getElementById('c4-board');
+  if (!board) return;
+  board.innerHTML = '';
+  for (let col = 0; col < 7; col++) {
+    const colDiv = document.createElement('div');
+    colDiv.className = 'c4-col';
+    colDiv.dataset.col = col;
+    colDiv.addEventListener('click', () => c4Drop(col));
+    for (let row = 0; row < 6; row++) {
+      const cell = document.createElement('div');
+      cell.className = 'c4-cell';
+      cell.id = `c4-${row}-${col}`;
+      colDiv.appendChild(cell);
+    }
+    board.appendChild(colDiv);
+  }
+}
+
+async function c4Join() {
+  try {
+    const res = await fetch('/api/game/join', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({player_id: c4PlayerId}),
+    });
+    const data = await res.json();
+    c4MyPlayer = data.player || 0;
+    const label = document.getElementById('c4-you-are');
+    if (label) {
+      if (c4MyPlayer === 1) label.innerHTML = 'You are <span class="c4-dot c4-red" style="display:inline-block;vertical-align:middle;"></span> <b>Red</b>';
+      else if (c4MyPlayer === 2) label.innerHTML = 'You are <span class="c4-dot c4-yellow" style="display:inline-block;vertical-align:middle;"></span> <b>Yellow</b>';
+      else label.textContent = 'Game full — spectating';
+    }
+  } catch (e) {
+    console.error('Join error:', e);
+  }
+}
+
+async function c4Poll() {
+  try {
+    const res = await fetch('/api/game/state');
+    const state = await res.json();
+
+    if (state.updated_at === c4LastUpdate) return;
+    c4LastUpdate = state.updated_at;
+
+    // Update board cells
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < 7; c++) {
+        const cell = document.getElementById(`c4-${r}-${c}`);
+        if (!cell) continue;
+        cell.classList.remove('c4-red', 'c4-yellow', 'c4-winning');
+        if (state.board[r][c] === 1) cell.classList.add('c4-red');
+        else if (state.board[r][c] === 2) cell.classList.add('c4-yellow');
+      }
+    }
+
+    // Highlight last move
+    if (state.last_move) {
+      const lastCell = document.getElementById(`c4-${state.last_move.row}-${state.last_move.col}`);
+      if (lastCell) lastCell.classList.add('c4-last-move');
+    }
+
+    // Update turn indicator
+    const turnEl = document.getElementById('c4-turn');
+    if (turnEl) {
+      if (state.winner === 1) {
+        turnEl.innerHTML = '<span class="c4-dot c4-red"></span> Red Wins!';
+        turnEl.className = 'c4-turn-indicator c4-win';
+      } else if (state.winner === 2) {
+        turnEl.innerHTML = '<span class="c4-dot c4-yellow"></span> Yellow Wins!';
+        turnEl.className = 'c4-turn-indicator c4-win';
+      } else if (state.winner === 3) {
+        turnEl.textContent = "It's a Draw!";
+        turnEl.className = 'c4-turn-indicator c4-draw';
+      } else if (state.players < 2) {
+        turnEl.textContent = 'Waiting for opponent...';
+        turnEl.className = 'c4-turn-indicator';
+      } else if (state.current_player === c4MyPlayer) {
+        turnEl.textContent = 'Your turn!';
+        turnEl.className = 'c4-turn-indicator c4-your-turn';
+      } else {
+        turnEl.textContent = "Opponent's turn";
+        turnEl.className = 'c4-turn-indicator';
+      }
+    }
+  } catch (e) {
+    console.error('Poll error:', e);
+  }
+}
+
+async function c4Drop(col) {
+  if (c4MyPlayer === 0) return;
+  try {
+    const res = await fetch('/api/game/move', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({player_id: c4PlayerId, col: col}),
+    });
+    if (res.ok) c4Poll();
+  } catch (e) {
+    console.error('Move error:', e);
+  }
+}
+
+async function c4Reset() {
+  try {
+    await fetch('/api/game/reset', {method: 'POST'});
+    c4MyPlayer = 0;
+    await c4Join();
+    c4Poll();
+  } catch (e) {
+    console.error('Reset error:', e);
+  }
+}
+
+function c4Init() {
+  c4BuildBoard();
+  c4Join();
+  c4Poll();
+  c4PollInterval = setInterval(c4Poll, 1000);
+}
+
 // ---- Init ----
 loadConfig();
 startLiveRefresh();
+c4Init();

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, fields
 from pathlib import Path
 
@@ -208,6 +209,129 @@ def get_bot_status():
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return jsonify({"running": running})
+
+
+# --- Connect Four Multiplayer Game ---
+
+# In-memory game state (shared between all connected players)
+c4_game = {
+    "board": [[0] * 7 for _ in range(6)],  # 6 rows x 7 cols, 0=empty 1=red 2=yellow
+    "current_player": 1,
+    "winner": 0,  # 0=none, 1=red wins, 2=yellow wins, 3=draw
+    "last_move": None,
+    "move_count": 0,
+    "players": {},  # player_id -> player number (1 or 2)
+    "updated_at": time.time(),
+}
+
+
+def _c4_check_winner(board, row, col, player):
+    """Check if the last move at (row, col) created a 4-in-a-row."""
+    directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+    for dr, dc in directions:
+        count = 1
+        for sign in [1, -1]:
+            r, c = row + dr * sign, col + dc * sign
+            while 0 <= r < 6 and 0 <= c < 7 and board[r][c] == player:
+                count += 1
+                r += dr * sign
+                c += dc * sign
+        if count >= 4:
+            return True
+    return False
+
+
+@app.route("/api/game/state")
+def c4_state():
+    """Return current game state for polling."""
+    return jsonify({
+        "board": c4_game["board"],
+        "current_player": c4_game["current_player"],
+        "winner": c4_game["winner"],
+        "last_move": c4_game["last_move"],
+        "move_count": c4_game["move_count"],
+        "players": len(c4_game["players"]),
+        "updated_at": c4_game["updated_at"],
+    })
+
+
+@app.route("/api/game/join", methods=["POST"])
+def c4_join():
+    """Join the game. Assigns player 1 (red) or player 2 (yellow)."""
+    data = request.get_json(force=True)
+    player_id = data.get("player_id", "")
+
+    if player_id in c4_game["players"]:
+        return jsonify({"player": c4_game["players"][player_id]})
+
+    assigned = list(c4_game["players"].values())
+    if 1 not in assigned:
+        c4_game["players"][player_id] = 1
+    elif 2 not in assigned:
+        c4_game["players"][player_id] = 2
+    else:
+        return jsonify({"player": 0, "error": "Game is full"})
+
+    return jsonify({"player": c4_game["players"][player_id]})
+
+
+@app.route("/api/game/move", methods=["POST"])
+def c4_move():
+    """Drop a piece in a column."""
+    data = request.get_json(force=True)
+    player_id = data.get("player_id", "")
+    col = data.get("col", -1)
+
+    if player_id not in c4_game["players"]:
+        return jsonify({"error": "Not in game"}), 400
+
+    player = c4_game["players"][player_id]
+    if player != c4_game["current_player"]:
+        return jsonify({"error": "Not your turn"}), 400
+
+    if c4_game["winner"] != 0:
+        return jsonify({"error": "Game is over"}), 400
+
+    if not (0 <= col < 7):
+        return jsonify({"error": "Invalid column"}), 400
+
+    # Find lowest empty row
+    board = c4_game["board"]
+    row = -1
+    for r in range(5, -1, -1):
+        if board[r][col] == 0:
+            row = r
+            break
+
+    if row == -1:
+        return jsonify({"error": "Column is full"}), 400
+
+    board[row][col] = player
+    c4_game["move_count"] += 1
+    c4_game["last_move"] = {"row": row, "col": col, "player": player}
+    c4_game["updated_at"] = time.time()
+
+    if _c4_check_winner(board, row, col, player):
+        c4_game["winner"] = player
+    elif c4_game["move_count"] >= 42:
+        c4_game["winner"] = 3  # draw
+    else:
+        c4_game["current_player"] = 2 if player == 1 else 1
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/game/reset", methods=["POST"])
+def c4_reset():
+    """Reset the game board."""
+    c4_game["board"] = [[0] * 7 for _ in range(6)]
+    c4_game["current_player"] = 1
+    c4_game["winner"] = 0
+    c4_game["last_move"] = None
+    c4_game["move_count"] = 0
+    c4_game["players"] = {}
+    c4_game["updated_at"] = time.time()
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
