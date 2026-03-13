@@ -133,7 +133,7 @@ class TradingBot:
         else:
             events = await self.position_tracker.sync_with_exchange(
                 self.data_provider.exchange, self.portfolio,
-                execution_engine=self.executor,
+                execution_engine=self.execution,
             )
         for ev in events:
             logger.info(f"POSITION EVENT: {ev}")
@@ -509,7 +509,7 @@ class TradingBot:
         # Startup: cancel orphaned orders from previous runs
         if not self.config.sandbox:
             open_syms = {p.symbol for p in self.position_tracker.positions}
-            cleaned = await self.executor.cancel_all_orphaned_orders(
+            cleaned = await self.execution.cancel_all_orphaned_orders(
                 self.data_provider.exchange, open_syms,
             )
             if cleaned:
