@@ -53,7 +53,10 @@ class MarketDataProvider:
         if market_type == "future":
             # Binance USDM perpetual futures use "swap" in ccxt
             options["defaultType"] = "swap"
-            options["options"] = {"defaultType": "swap"}
+            options["options"] = {
+                "defaultType": "swap",
+                "warnOnFetchOpenOrdersWithoutSymbol": False,
+            }
         if api_key:
             options["apiKey"] = api_key
         if api_secret:

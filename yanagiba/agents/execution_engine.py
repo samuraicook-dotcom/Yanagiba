@@ -84,7 +84,14 @@ class ExecutionEngine:
         # Position size: use leverage to get meaningful position from small account
         # adjusted_position_size can be > 1.0 (e.g. 3.0 = 3x leverage)
         position_value = portfolio.total_value * risk.adjusted_position_size
-        position_size = position_value / signal.entry if signal.entry > 0 else 0
+        if signal.entry <= 0:
+            logger.warning(f"Invalid entry price {signal.entry} for {signal.asset}")
+            return ExecutionPlan(
+                order_type="LIMIT", side=side, symbol=signal.asset,
+                entry=0, stop=0, take_profit_levels=[], position_size=0,
+                execution_priority="LOW",
+            )
+        position_size = position_value / signal.entry
 
         # Enforce minimum quantity for the pair
         min_qty = MIN_QTY.get(signal.asset, 0.001)
@@ -120,9 +127,14 @@ class ExecutionEngine:
         if step > 0 and position_size > 0:
             import math
             position_size = math.floor(position_size / step) * step
-            # Ensure rounding didn't drop below minimum
+            # Ensure rounding didn't drop below minimum (with margin check)
             if position_size < step:
-                position_size = step
+                min_notional = step * signal.entry
+                required_margin = min_notional / self.config.max_leverage
+                if required_margin <= portfolio.cash:
+                    position_size = step
+                else:
+                    position_size = 0
 
         plan = ExecutionPlan(
             order_type="LIMIT",
