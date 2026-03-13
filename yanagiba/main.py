@@ -143,9 +143,6 @@ class TradingBot:
         # Ensure markets are loaded (needed for futures symbol resolution)
         await self.data_provider.load_markets()
 
-        # Sync portfolio with actual Binance balance
-        await self._sync_balance()
-
         cycle_results = []
         now = datetime.utcnow()
         timestamp = now.isoformat()
@@ -185,6 +182,10 @@ class TradingBot:
             )
         if events:
             self.journal.update_drawdown(self.portfolio.total_value)
+
+        # Sync portfolio with actual Binance balance (AFTER position tracker
+        # so exchange balance is always the final authority, not internal math)
+        await self._sync_balance()
 
         # 1. Fetch geopolitical / news sentiment
         logger.info("AGENT 1a: Fetching geopolitical & news sentiment...")
