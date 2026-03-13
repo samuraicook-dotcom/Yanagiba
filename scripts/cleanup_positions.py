@@ -53,7 +53,10 @@ async def cleanup():
     exchange = ccxt.binance({
         "apiKey": api_key,
         "secret": api_secret,
-        "options": {"defaultType": "future"},
+        "options": {
+            "defaultType": "future",
+            "warnOnFetchOpenOrdersWithoutSymbol": False,
+        },
         "enableRateLimit": True,
     })
 
