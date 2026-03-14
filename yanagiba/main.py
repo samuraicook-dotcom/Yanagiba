@@ -99,7 +99,10 @@ class TradingBot:
                 )
             except Exception as e:
                 logger.warning(f"Could not restore portfolio: {e}")
-        return PortfolioState(total_value=0.0, cash=0.0)
+        # Sandbox default: $1000 paper trading balance
+        # Live mode: $0 until first _sync_balance() fetches real balance
+        default_value = 1000.0 if self.config.sandbox else 0.0
+        return PortfolioState(total_value=default_value, cash=default_value)
 
     def _save_portfolio(self):
         """Persist portfolio state for crash recovery."""
@@ -117,8 +120,8 @@ class TradingBot:
 
     async def _sync_balance(self):
         """Sync portfolio value with actual exchange balance every cycle."""
-        if self.config.sandbox:
-            return
+        if self.config.sandbox and not self.config.api_key:
+            return  # No API key in sandbox = pure paper trading, use default
         try:
             balance = await self.data_provider.exchange.fetch_balance()
             usdt = balance.get("USDT", {})

@@ -265,13 +265,19 @@ class PositionTracker:
 
     @staticmethod
     def _update_daily_loss_pct(portfolio) -> None:
-        """Compute daily_loss_pct from daily_pnl."""
+        """Compute daily_loss_pct as worst intraday loss (high-water mark).
+
+        Once the daily loss limit is hit, it stays hit for the rest of the day
+        even if a winning trade brings daily_pnl back positive. This prevents
+        the "loss limit bypass" where a recovery trade re-enables trading.
+        """
         if portfolio.total_value > 0 and portfolio.daily_pnl < 0:
-            portfolio.daily_loss_pct = (
-                abs(portfolio.daily_pnl) / portfolio.total_value
+            current_loss_pct = abs(portfolio.daily_pnl) / portfolio.total_value
+            # Only ratchet UP — never reduce daily_loss_pct within a day
+            portfolio.daily_loss_pct = max(
+                portfolio.daily_loss_pct, current_loss_pct,
             )
-        else:
-            portfolio.daily_loss_pct = 0.0
+        # Don't reset to 0 when daily_pnl recovers — that's the bypass bug
 
     async def _get_last_price(self, exchange, symbol: str) -> float:
         """Fetch the last traded price for a symbol."""
