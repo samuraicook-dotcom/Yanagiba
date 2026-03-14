@@ -17,7 +17,7 @@ import logging
 import logging.handlers
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -147,7 +147,7 @@ class TradingBot:
         await self.data_provider.load_markets()
 
         cycle_results = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
 
         # Reset daily PnL at midnight UTC
@@ -315,6 +315,16 @@ class TradingBot:
 
             if not signals:
                 logger.info(f"No trade signals for {symbol}")
+                return None
+
+            # Filter out signals with zero/invalid prices
+            signals = [
+                s for s in signals
+                if s.entry > 0 and s.stop_loss > 0
+                and s.take_profit_1 > 0 and s.take_profit_2 > 0
+            ]
+            if not signals:
+                logger.info(f"No valid signals for {symbol} (all had zero prices)")
                 return None
 
             self._print_signals(signals)

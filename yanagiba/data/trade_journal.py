@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class TradeJournal:
     ):
         """Log a trade to the journal."""
         record = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
             "direction": direction,
             "strategy": strategy,
@@ -110,7 +110,7 @@ class TradeJournal:
     ):
         """Record a trade closure with PnL. Updates win/loss stats."""
         record = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
             "status": "closed",
             "close_type": close_type,

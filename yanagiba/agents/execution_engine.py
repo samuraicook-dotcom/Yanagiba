@@ -355,23 +355,34 @@ class ExecutionEngine:
 
         cancelled = 0
         try:
-            open_orders = await exchange.fetch_open_orders()
+            # Fetch open orders per-symbol to avoid the ccxt warning
+            symbols_to_check = set()
+            for plan in self.pending_orders:
+                symbols_to_check.add(plan.symbol)
+                swap = f"{plan.symbol}:USDT"
+                if exchange.markets and swap in exchange.markets:
+                    symbols_to_check.add(swap)
+
             now = exchange.milliseconds()
-            for order in open_orders:
-                created = order.get("timestamp", now)
-                age_s = (now - created) / 1000
-                if age_s > max_age_seconds and order.get("status") == "open":
-                    try:
-                        symbol = order.get("symbol", "")
-                        order_id = order.get("id", "")
-                        await exchange.cancel_order(order_id, symbol)
-                        cancelled += 1
-                        logger.info(
-                            f"Cancelled stale order {order_id} ({symbol}, "
-                            f"age={age_s:.0f}s)"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to cancel order {order.get('id')}: {e}")
+            for sym in symbols_to_check:
+                try:
+                    open_orders = await exchange.fetch_open_orders(sym)
+                except Exception:
+                    continue
+                for order in open_orders:
+                    created = order.get("timestamp", now)
+                    age_s = (now - created) / 1000
+                    if age_s > max_age_seconds and order.get("status") == "open":
+                        try:
+                            order_id = order.get("id", "")
+                            await exchange.cancel_order(order_id, sym)
+                            cancelled += 1
+                            logger.info(
+                                f"Cancelled stale order {order_id} ({sym}, "
+                                f"age={age_s:.0f}s)"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to cancel order {order.get('id')}: {e}")
         except Exception as e:
             logger.warning(f"Could not fetch open orders: {e}")
 
@@ -430,16 +441,27 @@ class ExecutionEngine:
 
         cancelled = 0
         try:
-            all_orders = await exchange.fetch_open_orders()
-            symbols_to_cancel: set[str] = set()
-            for order in all_orders:
-                sym = order.get("symbol", "")
-                # Normalize: BTC/USDT:USDT -> BTC/USDT
-                base_sym = sym.replace(":USDT", "")
-                if base_sym not in open_symbols and sym not in open_symbols:
-                    symbols_to_cancel.add(sym)
+            # Check each configured asset symbol individually to avoid
+            # the ccxt fetchOpenOrders-without-symbol warning
+            from yanagiba.models.config import TradingConfig
+            all_assets = list(self.config.assets)
+            symbols_to_check: set[str] = set()
+            for asset in all_assets:
+                symbols_to_check.add(asset)
+                swap = f"{asset}:USDT"
+                if exchange.markets and swap in exchange.markets:
+                    symbols_to_check.add(swap)
+            # Also check open_symbols (positions we're tracking)
+            for sym in open_symbols:
+                symbols_to_check.add(sym)
+                swap = f"{sym}:USDT"
+                if exchange.markets and swap in exchange.markets:
+                    symbols_to_check.add(swap)
 
-            for sym in symbols_to_cancel:
+            for sym in symbols_to_check:
+                base_sym = sym.replace(":USDT", "")
+                if base_sym in open_symbols or sym in open_symbols:
+                    continue  # skip symbols with active positions
                 try:
                     orders = await exchange.fetch_open_orders(sym)
                     for order in orders:
@@ -449,12 +471,11 @@ class ExecutionEngine:
                         except Exception as e:
                             logger.warning(f"Cancel failed: {e}")
                 except Exception as e:
-                    logger.warning(f"Fetch orders for {sym} failed: {e}")
+                    logger.debug(f"Fetch orders for {sym}: {e}")
 
             if cancelled:
                 logger.info(
-                    f"Startup cleanup: cancelled {cancelled} orphaned "
-                    f"orders across {len(symbols_to_cancel)} symbols"
+                    f"Startup cleanup: cancelled {cancelled} orphaned orders"
                 )
         except Exception as e:
             logger.warning(f"Orphaned order cleanup failed: {e}")

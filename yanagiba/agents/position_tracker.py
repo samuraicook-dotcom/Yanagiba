@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ class PositionTracker:
             stop_loss=stop_loss,
             take_profits=take_profits,
             entry_order_id=entry_order_id,
-            opened_at=datetime.utcnow().isoformat(),
+            opened_at=datetime.now(timezone.utc).isoformat(),
         )
         self.positions.append(pos)
         self._save_positions()
