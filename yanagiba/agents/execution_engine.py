@@ -443,7 +443,6 @@ class ExecutionEngine:
         try:
             # Check each configured asset symbol individually to avoid
             # the ccxt fetchOpenOrders-without-symbol warning
-            from yanagiba.models.config import TradingConfig
             all_assets = list(self.config.assets)
             symbols_to_check: set[str] = set()
             for asset in all_assets:

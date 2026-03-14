@@ -29,6 +29,7 @@ class TrackedPosition:
     margin_usd: float
     stop_loss: float
     take_profits: list[float]
+    strategy: str = ""
     entry_order_id: str = ""
     sl_order_id: str = ""
     tp_order_ids: list[str] = field(default_factory=list)
@@ -45,6 +46,7 @@ class TrackedPosition:
             "margin_usd": self.margin_usd,
             "stop_loss": self.stop_loss,
             "take_profits": self.take_profits,
+            "strategy": self.strategy,
             "entry_order_id": self.entry_order_id,
             "sl_order_id": self.sl_order_id,
             "tp_order_ids": self.tp_order_ids,
@@ -99,6 +101,7 @@ class PositionTracker:
         stop_loss: float,
         take_profits: list[float],
         entry_order_id: str = "",
+        strategy: str = "",
     ) -> TrackedPosition:
         pos = TrackedPosition(
             symbol=symbol,
@@ -108,6 +111,7 @@ class PositionTracker:
             margin_usd=margin_usd,
             stop_loss=stop_loss,
             take_profits=take_profits,
+            strategy=strategy,
             entry_order_id=entry_order_id,
             opened_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -181,6 +185,7 @@ class PositionTracker:
                     event = {
                         "type": f"position_closed_{close_type}",
                         "symbol": pos.symbol,
+                        "strategy": pos.strategy,
                         "price": round(last_price, 2),
                         "pnl": round(pnl, 2),
                         "portfolio_value": round(portfolio.total_value, 2),
@@ -235,6 +240,7 @@ class PositionTracker:
                         event = {
                             "type": f"partial_close_{pct_label}",
                             "symbol": pos.symbol,
+                            "strategy": pos.strategy,
                             "price": round(last_price, 2),
                             "pnl": round(partial_pnl, 2),
                             "portfolio_value": round(portfolio.total_value, 2),
@@ -309,11 +315,13 @@ class PositionTracker:
                     total_pnl += realized
                     found = True
             if found:
+                # Subtract already-counted partial PnL to avoid double-counting
+                new_pnl = total_pnl - pos.realized_pnl
                 logger.info(
                     f"Partial close PnL for {pos.symbol}: "
-                    f"${total_pnl:+.4f}"
+                    f"${new_pnl:+.4f} (total realized: ${total_pnl:+.4f})"
                 )
-                return total_pnl
+                return new_pnl
         except Exception as e:
             logger.debug(f"Could not fetch partial PnL for {pos.symbol}: {e}")
 
@@ -441,6 +449,7 @@ class PositionTracker:
                     event = {
                         "type": f"sandbox_{hit}",
                         "symbol": pos.symbol,
+                        "strategy": pos.strategy,
                         "price": round(price, 2),
                         "pnl": round(pnl, 2),
                         "portfolio_value": round(portfolio.total_value, 2),

@@ -91,7 +91,7 @@ class TradeJournal:
             logger.warning(f"Could not write trade journal: {e}")
 
         # Update stats — count trade entry (wins/losses tracked at close time)
-        if status in ("placed", "closed"):
+        if status in ("placed", "simulated", "closed"):
             self._stats["total_trades"] += 1
 
             # Strategy-level tracking (trade count at entry)
@@ -107,6 +107,7 @@ class TradeJournal:
         symbol: str,
         pnl: float,
         close_type: str = "closed",
+        strategy: str = "",
     ):
         """Record a trade closure with PnL. Updates win/loss stats."""
         record = {
@@ -115,6 +116,7 @@ class TradeJournal:
             "status": "closed",
             "close_type": close_type,
             "pnl": pnl,
+            "strategy": strategy,
         }
 
         # Append to JSONL
@@ -130,6 +132,18 @@ class TradeJournal:
         elif pnl < 0:
             self._stats["losses"] += 1
         self._stats["total_pnl"] += pnl
+
+        # Update per-strategy stats (wins, losses, pnl)
+        if strategy:
+            strat = self._stats["strategy_stats"].setdefault(strategy, {
+                "trades": 0, "wins": 0, "losses": 0, "pnl": 0.0,
+            })
+            strat["pnl"] += pnl
+            if pnl > 0:
+                strat["wins"] += 1
+            elif pnl < 0:
+                strat["losses"] += 1
+
         self._save_stats()
 
     def update_drawdown(self, portfolio_value: float):

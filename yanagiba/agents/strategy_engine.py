@@ -7,11 +7,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from yanagiba.indicators import technical
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import Direction, MarketAnalysis, MarketRegime, TradeSignal
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyEngine:

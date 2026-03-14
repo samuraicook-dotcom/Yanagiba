@@ -60,7 +60,11 @@ console = Console()
 class TradingBot:
     """Main orchestrator that runs the 4-agent trading pipeline."""
 
-    def __init__(self, config: TradingConfig | None = None, telegram: TelegramNotifier | None = None):
+    def __init__(
+        self,
+        config: TradingConfig | None = None,
+        telegram: TelegramNotifier | None = None,
+    ):
         self.config = config or TradingConfig()
         self.data_provider = MarketDataProvider(
             self.config.exchange, self.config.sandbox, self.config.market_type,
@@ -182,6 +186,7 @@ class TradingBot:
                 symbol=ev.get("symbol", "?"),
                 pnl=ev.get("pnl", 0.0),
                 close_type=ev.get("type", "closed"),
+                strategy=ev.get("strategy", ""),
             )
         if events:
             self.journal.update_drawdown(self.portfolio.total_value)
@@ -398,6 +403,7 @@ class TradingBot:
                         entry_price=order.entry, quantity=plan.position_size,
                         margin_usd=margin_usd, stop_loss=sig.stop_loss,
                         take_profits=[sig.take_profit_1, sig.take_profit_2],
+                        strategy=sig.strategy,
                     )
 
                 # Log to trade journal
@@ -751,7 +757,10 @@ def main():
 
     # API keys: check CLI args first, then env vars
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
-    config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
+    config.api_secret = (
+        os.environ.get("BINANCE_API_SECRET", "")
+        or os.environ.get("BINANCE_SECRET", "")
+    )
 
     # Back up .env so power outages don't wipe credentials
     if config.api_key and primary_env.exists():
@@ -811,7 +820,10 @@ def main():
     if telegram.enabled:
         console.print("[bold green]Telegram notifications enabled[/]")
     else:
-        console.print("[dim]Telegram notifications disabled (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env)[/]")
+        console.print(
+            "[dim]Telegram notifications disabled"
+            " (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env)[/]"
+        )
 
     bot = TradingBot(config, telegram=telegram)
 
