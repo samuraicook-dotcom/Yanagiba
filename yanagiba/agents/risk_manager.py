@@ -127,7 +127,7 @@ class RiskManager:
         if fee_adjusted_rr < min_rr:
             return self._reject(
                 RiskLevel.MEDIUM,
-                f"Fee-adjusted R:R {fee_adjusted_rr:.2f} below "
+                f"Fee-adjusted R:R {fee_adjusted_rr:.4f} below "
                 f"{min_rr} (raw R:R {signal.risk_reward})",
             )
 
