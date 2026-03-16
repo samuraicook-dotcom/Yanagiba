@@ -345,7 +345,7 @@
               <label>Max Risk Per Trade</label>
               <span class="range-value" id="val-risk-per-trade">{{ (config.max_risk_per_trade * 100)|round(1) }}%</span>
             </div>
-            <input type="range" id="cfg-max_risk_per_trade" min="0.5" max="10" step="0.1"
+            <input type="range" id="cfg-max_risk_per_trade" min="0.5" max="25" step="0.5"
                    value="{{ config.max_risk_per_trade * 100 }}"
                    oninput="updateRangeDisplay(this, 'val-risk-per-trade', '%')">
             <div class="hint">Percentage of portfolio risked on each trade. Lower = safer.</div>

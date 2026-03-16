@@ -203,8 +203,8 @@ function calculateRiskScore(c) {
   // Leverage (1-50 -> 0-30 points)
   score += Math.min(30, (c.max_leverage / 50) * 30);
 
-  // Risk per trade (0.5-10% -> 0-25 points)
-  score += Math.min(25, (c.max_risk_per_trade * 100 / 10) * 25);
+  // Risk per trade (0.5-25% -> 0-25 points)
+  score += Math.min(25, (c.max_risk_per_trade * 100 / 25) * 25);
 
   // Daily loss limit (1-15% -> 0-20 points)
   score += Math.min(20, (c.daily_loss_limit * 100 / 15) * 20);
