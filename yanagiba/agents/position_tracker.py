@@ -129,7 +129,10 @@ class PositionTracker:
                 check_sym = futures_sym if futures_sym in open_symbols else pos.symbol
 
                 if check_sym not in open_symbols:
-                    # Position fully closed — fetch real PnL and last price
+                    # Position fully closed — cancel orphaned orders first
+                    await self._cancel_symbol_orders(exchange, pos.symbol)
+
+                    # Fetch real PnL and last price
                     pnl = await self._fetch_real_pnl(exchange, pos)
                     last_price = await self._get_last_price(exchange, pos.symbol)
                     pos.status = "closed"
@@ -226,6 +229,21 @@ class PositionTracker:
         if events:
             self._save_positions()
         return events
+
+    async def _cancel_symbol_orders(self, exchange, symbol: str):
+        """Cancel all open orders for a symbol (cleanup after close)."""
+        try:
+            futures_sym = f"{symbol}:USDT"
+            sym = futures_sym if futures_sym in exchange.markets else symbol
+            open_orders = await exchange.fetch_open_orders(sym)
+            for order in open_orders:
+                try:
+                    await exchange.cancel_order(order["id"], sym)
+                    logger.info(f"Cancelled orphaned order {order['id']} for {sym}")
+                except Exception as e:
+                    logger.debug(f"Could not cancel order {order.get('id')}: {e}")
+        except Exception as e:
+            logger.debug(f"Could not fetch orders for {symbol}: {e}")
 
     async def _get_last_price(self, exchange, symbol: str) -> float:
         """Fetch the last traded price for a symbol."""

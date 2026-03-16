@@ -27,7 +27,7 @@ MIN_QTY = {
     "ARB/USDT": 0.1,
     "OP/USDT": 0.1,
     "DOGE/USDT": 1.0,
-    "AVAX/USDT": 0.01,
+    "AVAX/USDT": 1.0,
     "LINK/USDT": 0.01,
     "POL/USDT": 0.1,
     "APT/USDT": 0.01,
@@ -144,7 +144,10 @@ class ExecutionEngine:
         self.pending_orders.append(plan)
         return plan
 
-    async def execute(self, plan: ExecutionPlan, exchange=None) -> ExecutionOrder:
+    async def execute(
+        self, plan: ExecutionPlan, exchange=None,
+        portfolio: PortfolioState | None = None,
+    ) -> ExecutionOrder:
         """Execute the plan on an exchange (or simulate in sandbox mode)."""
         order = ExecutionOrder(
             pair=plan.symbol,
@@ -184,11 +187,37 @@ class ExecutionEngine:
                 limits = market_info.get("limits", {}).get("amount", {})
                 min_qty = limits.get("min") or MIN_QTY.get(plan.symbol, 0.001)
                 if plan.position_size < min_qty:
-                    order.status = f"skipped: qty {plan.position_size} below min {min_qty}"
-                    logger.warning(
-                        f"Order below min qty: {plan.position_size} < {min_qty} {plan.symbol}"
+                    # Try to scale up to minimum (like create_execution_plan does)
+                    min_notional = min_qty * plan.entry
+                    required_margin = min_notional / self.config.max_leverage
+                    if portfolio and required_margin <= portfolio.cash:
+                        logger.info(
+                            f"Scaling {plan.symbol} from {plan.position_size} to "
+                            f"min qty {min_qty} (notional ${min_notional:.2f})"
+                        )
+                        plan.position_size = min_qty
+                        order.position_size = min_qty
+                    else:
+                        cash = portfolio.cash if portfolio else 0
+                        order.status = (
+                            f"skipped: qty {plan.position_size} below min "
+                            f"{min_qty}, need ${required_margin:.2f} margin"
+                            f", have ${cash:.2f}"
+                        )
+                        logger.warning(
+                            f"Order below min qty: {plan.position_size} < {min_qty} "
+                            f"{plan.symbol}, insufficient margin to scale up"
+                        )
+                        return order
+
+                # Round amount to exchange precision
+                try:
+                    plan.position_size = float(
+                        exchange.amount_to_precision(futures_symbol, plan.position_size)
                     )
-                    return order
+                    order.position_size = plan.position_size
+                except Exception:
+                    pass  # Keep original rounding if precision lookup fails
 
                 # Set leverage — asset-specific caps (BTC=10x, ETH=15x)
                 overrides = self.config.asset_overrides.get(plan.symbol, {})
@@ -270,6 +299,12 @@ class ExecutionEngine:
                         n_tps = len(plan.take_profit_levels)
                         weight = tp_weights[i] if i < len(tp_weights) else 1.0 / n_tps
                         tp_size = round(plan.position_size * weight, 6)
+                        try:
+                            tp_size = float(
+                                exchange.amount_to_precision(futures_symbol, tp_size)
+                            )
+                        except Exception:
+                            pass
                         tp_side = "sell" if plan.side == "buy" else "buy"
                         await exchange.create_order(
                             symbol=futures_symbol,

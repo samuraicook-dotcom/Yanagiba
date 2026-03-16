@@ -365,7 +365,9 @@ class TradingBot:
             executed = []
             for sig, risk_assessment in approved_trades:
                 plan = self.execution.create_execution_plan(sig, risk_assessment, self.portfolio)
-                order = await self.execution.execute(plan, self.data_provider.exchange)
+                order = await self.execution.execute(
+                    plan, self.data_provider.exchange, self.portfolio,
+                )
                 executed.append({
                     "signal": sig.to_dict(),
                     "risk": risk_assessment.to_dict(),
