@@ -194,14 +194,33 @@ class RiskManager:
                 RiskLevel.HIGH, "No room for new positions"
             )
 
-        # Check minimum notional ($5 on Binance Futures) — reject if too small
+        # Check minimum notional ($5 on Binance Futures) — bump up if close
         min_notional = 5.0
         if position_notional < min_notional:
-            return self._reject(
-                RiskLevel.MEDIUM,
-                f"Position notional ${position_notional:.2f} below "
-                f"${min_notional} exchange minimum",
+            # If we can afford to bump up to minimum, do it
+            bump_margin = min_notional / max_lev
+            bump_exposure = bump_margin / portfolio.total_value
+            can_bump = (
+                portfolio.total_exposure_pct + bump_exposure
+                <= self.config.max_portfolio_risk
             )
+            if can_bump:
+                position_notional = min_notional
+                margin_pct = (
+                    bump_margin / portfolio.total_value
+                    if portfolio.total_value > 0 else 0
+                )
+                position_size_pct = (
+                    position_notional / portfolio.total_value
+                    if portfolio.total_value > 0 else 0
+                )
+                logger.info(f"Bumped {signal.asset} to ${min_notional} min notional")
+            else:
+                return self._reject(
+                    RiskLevel.MEDIUM,
+                    f"Position ${position_notional:.2f} below "
+                    f"${min_notional} min notional, no margin to bump",
+                )
 
         # Weekend scaling — reduce position size on Sat/Sun
         if is_weekend and self.config.use_weekend_filter:
