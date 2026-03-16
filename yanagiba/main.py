@@ -39,6 +39,7 @@ from yanagiba.data.trade_journal import TradeJournal
 from yanagiba.data.volume_flow import VolumeFlowTracker
 from yanagiba.models.config import TradingConfig
 from yanagiba.models.types import OnChainMetrics, PortfolioState
+from yanagiba.ui.app import load_config
 
 PORTFOLIO_FILE = Path.home() / "Yanagiba" / "journal" / "portfolio_state.json"
 
@@ -132,6 +133,29 @@ class TradingBot:
             }, indent=2))
         except Exception as e:
             logger.warning(f"Could not save portfolio: {e}")
+
+    def _reload_config(self):
+        """Hot-reload config from dashboard if the file changed."""
+        from yanagiba.ui.app import CONFIG_FILE
+        try:
+            if not CONFIG_FILE.exists():
+                return
+            mtime = CONFIG_FILE.stat().st_mtime
+            if mtime == getattr(self, "_config_mtime", None):
+                return
+            new_cfg = load_config()
+            # Preserve runtime-only fields that shouldn't be overwritten
+            new_cfg.api_key = self.config.api_key
+            new_cfg.api_secret = self.config.api_secret
+            new_cfg.sandbox = self.config.sandbox
+            self.config = new_cfg
+            # Propagate to agents
+            self.risk_manager.config = new_cfg
+            self.strategy_engine.config = new_cfg
+            self._config_mtime = mtime
+            logger.info("Config hot-reloaded from dashboard")
+        except Exception as e:
+            logger.warning(f"Config reload failed: {e}")
 
     async def run_cycle(self) -> list[dict]:
         """Run one full analysis + trading cycle across all assets."""
@@ -675,6 +699,8 @@ class TradingBot:
         try:
             while self._running:
                 try:
+                    # Hot-reload config from dashboard if changed
+                    self._reload_config()
                     results = await self.run_cycle()
                     consecutive_failures = 0  # reset on success
                     if results:
@@ -829,7 +855,9 @@ def main():
         load_dotenv(primary_env)
     load_dotenv()  # Also check CWD
 
-    config = TradingConfig()
+    config = load_config()  # Load dashboard config if saved, else defaults
+    logger.info("Config loaded: min_risk_reward=%.2f, max_leverage=%.1f",
+                config.min_risk_reward, config.max_leverage)
 
     # API keys: check CLI args first, then env vars
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
