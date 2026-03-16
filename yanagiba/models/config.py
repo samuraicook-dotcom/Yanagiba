@@ -133,7 +133,7 @@ class TradingConfig:
     use_trailing_stop: bool = True
     trailing_stop_activation: float = 0.008  # activate after 0.8% profit
     trailing_stop_callback: float = 0.003  # trail by 0.3%
-    min_confidence: float = 3.5  # lowered to allow more trades
+    min_confidence: float = 7.0  # only execute high-confidence trades
 
     # RSS feeds & NLP sentiment
     enable_rss_feeds: bool = True  # scrape CoinDesk, CoinTelegraph, Decrypt, etc.
