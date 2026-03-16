@@ -52,7 +52,7 @@ class TradingConfig:
     scalp_position_size: float = 0.08  # 8% of portfolio per scalp
 
     # R:R and confidence thresholds — lowered for more entries
-    min_risk_reward: float = 1.5  # minimum R:R to take a trade (need ~40% win rate)
+    min_risk_reward: float = 1.2  # minimum R:R after fees (need ~45% win rate)
 
     # Indicator params
     rsi_period: int = 14
