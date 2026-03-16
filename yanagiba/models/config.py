@@ -42,7 +42,7 @@ class TradingConfig:
     )
 
     # Risk limits (micro account ~$50) — aggressive mode
-    max_portfolio_risk: float = 0.40  # 40% max margin exposure
+    max_portfolio_risk: float = 1.00  # 100% max margin exposure
     max_risk_per_trade: float = 0.25  # 25% risk per trade
     max_leverage: float = 5.0  # max 5x leverage
     daily_loss_limit: float = 0.05  # 5% daily loss cap ($2.50 on $50)
