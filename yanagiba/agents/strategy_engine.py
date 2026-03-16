@@ -83,16 +83,16 @@ class StrategyEngine:
 
         # EMA pullback: price near fast EMA in uptrend (tight ATR-scaled zone)
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            atr_zone = min(atr_val / close * 0.8, 0.008)  # tight zone: must be close to EMA
+            atr_zone = min(atr_val / close * 1.2, 0.012)  # wider zone for more entries
             pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             above_mid = close > latest["ema_mid"]
-            # RSI 40-65: avoid overbought territory entirely
-            rsi_ok = not np.isnan(latest["rsi"]) and 40 < latest["rsi"] < 65
+            # RSI 35-70: wider band to catch more setups
+            rsi_ok = not np.isnan(latest["rsi"]) and 35 < latest["rsi"] < 70
 
             if pullback and above_mid and rsi_ok:
                 sl = close - 1.5 * atr_val
-                tp1 = close + 3.5 * atr_val
-                tp2 = close + 5.5 * atr_val
+                tp1 = close + 3.0 * atr_val
+                tp2 = close + 5.0 * atr_val
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
                 # Dynamic confidence based on RSI sweet spot (45-55 best)
                 rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
@@ -115,16 +115,16 @@ class StrategyEngine:
             return None
 
         if not np.isnan(latest["ema_fast"]) and not np.isnan(latest["ema_mid"]):
-            atr_zone = min(atr_val / close * 0.8, 0.008)  # tight zone
+            atr_zone = min(atr_val / close * 1.2, 0.012)  # wider zone for more entries
             pullback = abs(close - latest["ema_fast"]) / close < atr_zone
             below_mid = close < latest["ema_mid"]
-            # RSI 35-60: avoid oversold territory entirely
-            rsi_ok = not np.isnan(latest["rsi"]) and 35 < latest["rsi"] < 60
+            # RSI 30-65: wider band to catch more setups
+            rsi_ok = not np.isnan(latest["rsi"]) and 30 < latest["rsi"] < 65
 
             if pullback and below_mid and rsi_ok:
                 sl = close + 1.5 * atr_val
-                tp1 = close - 3.5 * atr_val
-                tp2 = close - 5.5 * atr_val
+                tp1 = close - 3.0 * atr_val
+                tp2 = close - 5.0 * atr_val
                 rr = (close - tp1) / (sl - close) if sl > close else 0
                 rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
                 confidence = min(5.0 + rsi_quality * 3 + rr * 0.3, 9.0)
@@ -148,12 +148,12 @@ class StrategyEngine:
 
         # Mean reversion: price must be AT or BEYOND Bollinger band
         if not np.isnan(latest["bb_lower"]) and not np.isnan(latest["bb_upper"]):
-            # Confirm ranging: RSI between 35-65 (not in a strong trend)
+            # Confirm ranging: RSI between 30-70 (wider band)
             rsi_val = latest["rsi"] if not np.isnan(latest["rsi"]) else 50
-            is_ranging = 35 < rsi_val < 65
+            is_ranging = 30 < rsi_val < 70
 
-            # Long: price at or below lower band (true extreme)
-            if close <= latest["bb_lower"] and is_ranging:
+            # Long: price within 0.1% of lower band (near extreme)
+            if close <= latest["bb_lower"] * 1.001 and is_ranging:
                 sl = close - 1.0 * atr_val
                 tp1 = latest["bb_mid"]  # TP at midline (match entry thesis)
                 tp2 = latest["bb_upper"]
@@ -166,8 +166,8 @@ class StrategyEngine:
                     confidence_score=round(confidence, 1),
                     strategy="bb_mean_reversion_long", timeframe=tf,
                 ))
-            # Short: price at or above upper band (true extreme)
-            elif close >= latest["bb_upper"] and is_ranging:
+            # Short: price within 0.1% of upper band (near extreme)
+            elif close >= latest["bb_upper"] * 0.999 and is_ranging:
                 sl = close + 1.0 * atr_val
                 tp1 = latest["bb_mid"]  # TP at midline (match entry thesis)
                 tp2 = latest["bb_lower"]
@@ -276,13 +276,13 @@ class StrategyEngine:
         # Get asset-specific SL/TP (BTC needs tighter params than altcoins)
         scalp_sl, scalp_tp_min, scalp_tp_max = self._get_scalp_params(symbol)
 
-        # LONG scalp: RSI in sweet spot (not overbought), strong order book
+        # LONG scalp: RSI in sweet spot, order book confirmation
         if (
             close > vwap_val
             and rsi_val > self.config.rsi_long_threshold
-            and rsi_val < 70  # reject overbought — don't chase
+            and rsi_val < 75  # wider RSI ceiling
             and vd > 0
-            and ob_imbalance > 0.1
+            and ob_imbalance > 0.05  # lower imbalance threshold
         ):
             sl = close * (1 - scalp_sl)
             tp1 = close * (1 + scalp_tp_min)
@@ -301,13 +301,13 @@ class StrategyEngine:
                 strategy="scalp_momentum_long", timeframe=tf,
             )
 
-        # SHORT scalp: RSI in sweet spot (not oversold), weak order book
+        # SHORT scalp: RSI in sweet spot, order book confirmation
         if (
             close < vwap_val
             and rsi_val < self.config.rsi_short_threshold
-            and rsi_val > 30  # reject oversold — don't chase
+            and rsi_val > 25  # wider RSI floor
             and vd < 0
-            and ob_imbalance < -0.1
+            and ob_imbalance < -0.05  # lower imbalance threshold
         ):
             sl = close * (1 + scalp_sl)
             tp1 = close * (1 - scalp_tp_min)

@@ -41,23 +41,23 @@ class TradingConfig:
         default_factory=lambda: ["1m", "3m", "5m"]
     )
 
-    # Risk limits (micro account ~$50)
-    max_portfolio_risk: float = 0.30  # 30% max margin exposure (conservative)
-    max_risk_per_trade: float = 0.01  # 1% risk per trade ($0.50 on $50 — survive 30+ losses)
-    max_leverage: float = 3.0  # max 3x leverage (safe for micro accounts)
-    daily_loss_limit: float = 0.03  # 3% daily loss cap ($1.50 on $50)
-    scalp_stop_loss: float = 0.004  # 0.4% for scalping (tighter = more trades survive)
-    scalp_take_profit_min: float = 0.012  # 1.2% TP1 (3:1 R:R with 0.4% SL)
-    scalp_take_profit_max: float = 0.025  # 2.5% TP2
-    scalp_position_size: float = 0.05  # 5% of portfolio per scalp
+    # Risk limits (micro account ~$50) — aggressive mode
+    max_portfolio_risk: float = 0.40  # 40% max margin exposure
+    max_risk_per_trade: float = 0.02  # 2% risk per trade ($1.00 on $50)
+    max_leverage: float = 5.0  # max 5x leverage
+    daily_loss_limit: float = 0.05  # 5% daily loss cap ($2.50 on $50)
+    scalp_stop_loss: float = 0.004  # 0.4% for scalping
+    scalp_take_profit_min: float = 0.010  # 1.0% TP1 (2.5:1 R:R with 0.4% SL)
+    scalp_take_profit_max: float = 0.022  # 2.2% TP2
+    scalp_position_size: float = 0.08  # 8% of portfolio per scalp
 
-    # R:R and confidence thresholds
-    min_risk_reward: float = 1.8  # minimum R:R to take a trade (need ~36% win rate)
+    # R:R and confidence thresholds — lowered for more entries
+    min_risk_reward: float = 1.5  # minimum R:R to take a trade (need ~40% win rate)
 
     # Indicator params
     rsi_period: int = 14
-    rsi_long_threshold: float = 53.0  # slightly above neutral
-    rsi_short_threshold: float = 47.0  # slightly below neutral
+    rsi_long_threshold: float = 50.0  # at neutral (more entries)
+    rsi_short_threshold: float = 50.0  # at neutral (more entries)
     ema_fast: int = 9  # faster EMA for scalping responsiveness
     ema_mid: int = 21
     ema_slow: int = 55  # shorter slow EMA — 200 is too laggy for micro account
@@ -76,14 +76,13 @@ class TradingConfig:
     # At 20x leverage: 0.10% * 20 = 2% of margin per round-trip!
     # With limit entry: maker(0.02%) + taker(0.05%) = 0.07% = 1.4% of margin
 
-    # Trading session filter (UTC hours — trade when volume is highest)
-    # Best BTC hours: US+EU overlap (13:00-17:00 UTC), Asia open (00:00-03:00)
+    # Trading session filter — disabled for 24/7 trading
     active_hours_utc: list[tuple[int, int]] = field(
-        default_factory=lambda: [(0, 4), (8, 21)]
+        default_factory=lambda: [(0, 24)]  # trade all hours
     )
-    use_session_filter: bool = True  # skip low-volume hours
-    weekend_position_scale: float = 0.5  # halve position size on weekends
-    use_weekend_filter: bool = True  # reduce risk on Sat/Sun (thin liquidity)
+    use_session_filter: bool = False  # trade around the clock
+    weekend_position_scale: float = 0.75  # 75% size on weekends (was 50%)
+    use_weekend_filter: bool = False  # trade weekends too
 
     # Asset-specific overrides (BTC moves differently than altcoins)
     # BTC: lower volatility per candle, needs wider SL but is more predictable
@@ -92,21 +91,21 @@ class TradingConfig:
         default_factory=lambda: {
             "BTC/USDT": {
                 "scalp_stop_loss": 0.003,  # 0.3% (BTC is tighter)
-                "scalp_take_profit_min": 0.009,  # 0.9% TP1
-                "scalp_take_profit_max": 0.018,  # 1.8% TP2
-                "max_leverage": 3.0,  # BTC: conservative leverage
+                "scalp_take_profit_min": 0.008,  # 0.8% TP1 (lower for more fills)
+                "scalp_take_profit_max": 0.016,  # 1.6% TP2
+                "max_leverage": 5.0,  # BTC: up to 5x
             },
             "ETH/USDT": {
                 "scalp_stop_loss": 0.004,  # 0.4%
-                "scalp_take_profit_min": 0.012,
-                "scalp_take_profit_max": 0.024,
-                "max_leverage": 3.0,  # ETH: conservative leverage
+                "scalp_take_profit_min": 0.010,  # 1.0% TP1
+                "scalp_take_profit_max": 0.020,  # 2.0% TP2
+                "max_leverage": 5.0,  # ETH: up to 5x
             },
         }
     )
 
-    # Correlation guard — max same-direction trades on correlated assets
-    max_correlated_trades: int = 2  # max 2 longs on BTC+ETH+SOL
+    # Correlation guard — relaxed for more simultaneous trades
+    max_correlated_trades: int = 3  # max 3 longs on BTC+ETH+SOL
     correlation_groups: list[list[str]] = field(
         default_factory=lambda: [
             ["BTC/USDT", "ETH/USDT", "SOL/USDT", "LINK/USDT"],
@@ -134,7 +133,7 @@ class TradingConfig:
     use_trailing_stop: bool = True
     trailing_stop_activation: float = 0.008  # activate after 0.8% profit
     trailing_stop_callback: float = 0.003  # trail by 0.3%
-    min_confidence: float = 5.0  # require decent confidence to trade
+    min_confidence: float = 3.5  # lowered to allow more trades
 
     # RSS feeds & NLP sentiment
     enable_rss_feeds: bool = True  # scrape CoinDesk, CoinTelegraph, Decrypt, etc.
