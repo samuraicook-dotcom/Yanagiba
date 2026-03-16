@@ -51,11 +51,28 @@ class TelegramNotifier:
                     if resp.status == 200:
                         return True
                     body = await resp.text()
-                    logger.warning(f"Telegram send failed (HTTP {resp.status}): {body[:200]}")
                     if resp.status == 401:
-                        logger.error("Telegram bot token is invalid — disabling notifications")
+                        logger.error(
+                            "Telegram bot token invalid — disabling"
+                        )
                         self.enabled = False
                         return False
+                    # Retry without Markdown on parse errors
+                    if resp.status == 400 and "parse entities" in body:
+                        async with session.post(
+                            f"{self.base_url}/sendMessage",
+                            json={
+                                "chat_id": self.chat_id,
+                                "text": message[:4096],
+                            },
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as plain_resp:
+                            if plain_resp.status == 200:
+                                return True
+                    logger.warning(
+                        f"Telegram send failed ({resp.status}): "
+                        f"{body[:200]}"
+                    )
             except asyncio.TimeoutError:
                 logger.warning(f"Telegram timeout (attempt {attempt + 1})")
             except Exception as e:
