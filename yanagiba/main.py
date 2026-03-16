@@ -70,7 +70,9 @@ class TradingBot:
             self.config.exchange, self.config.sandbox, self.config.market_type,
             self.config.api_key, self.config.api_secret,
         )
-        self.sentiment_tracker = SentimentTracker()
+        self.sentiment_tracker = SentimentTracker(
+            enable_rss=self.config.enable_rss_feeds,
+        )
         self.analyst = MarketAnalyst(self.config)
         self.strategy = StrategyEngine(self.config)
         self.risk = RiskManager(self.config)
@@ -513,6 +515,7 @@ class TradingBot:
         table.add_row("Overall Score", f"{report.overall_score:+.2f}")
         table.add_row("Geo Score", f"{report.geo_score:+.2f}")
         table.add_row("News Score", f"{report.news_score:+.2f}")
+        table.add_row("RSS Score", f"{report.rss_score:+.2f}")
         table.add_row("Gaming Score", f"{report.gaming_score:+.2f}")
         table.add_row("Fear & Greed", str(report.fear_greed_index or "N/A"))
         if report.risk_flags:
@@ -521,6 +524,10 @@ class TradingBot:
             table.add_row("Opportunities", report.opportunities[0][:60])
         if report.gaming_catalysts:
             table.add_row("Gaming Catalysts", ", ".join(report.gaming_catalysts[:3]))
+        if report.rss_headlines:
+            table.add_row("Top RSS", report.rss_headlines[0][:80])
+            for hl in report.rss_headlines[1:3]:
+                table.add_row("", hl[:80])
         console.print(table)
 
     def _print_analysis(self, symbol: str, analysis):

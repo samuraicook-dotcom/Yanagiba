@@ -136,6 +136,10 @@ class TradingConfig:
     trailing_stop_callback: float = 0.003  # trail by 0.3%
     min_confidence: float = 5.0  # require decent confidence to trade
 
+    # RSS feeds & NLP sentiment
+    enable_rss_feeds: bool = True  # scrape CoinDesk, CoinTelegraph, Decrypt, etc.
+    rss_max_age_hours: int = 4  # ignore headlines older than this
+
     # On-chain / order flow data providers (all free, no API keys)
     enable_open_interest: bool = True  # OI tracking via ccxt
     enable_liquidation_stream: bool = True  # Binance+Bybit liquidation WebSocket
