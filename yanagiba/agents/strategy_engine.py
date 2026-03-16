@@ -91,8 +91,8 @@ class StrategyEngine:
 
             if pullback and above_mid and rsi_ok:
                 sl = close - 1.5 * atr_val
-                tp1 = close + 3 * atr_val
-                tp2 = close + 5 * atr_val
+                tp1 = close + 3.5 * atr_val
+                tp2 = close + 5.5 * atr_val
                 rr = (tp1 - close) / (close - sl) if close > sl else 0
                 # Dynamic confidence based on RSI sweet spot (45-55 best)
                 rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
@@ -123,8 +123,8 @@ class StrategyEngine:
 
             if pullback and below_mid and rsi_ok:
                 sl = close + 1.5 * atr_val
-                tp1 = close - 3 * atr_val
-                tp2 = close - 5 * atr_val
+                tp1 = close - 3.5 * atr_val
+                tp2 = close - 5.5 * atr_val
                 rr = (close - tp1) / (sl - close) if sl > close else 0
                 rsi_quality = max(0, 1.0 - abs(latest["rsi"] - 50) / 20)
                 confidence = min(5.0 + rsi_quality * 3 + rr * 0.3, 9.0)
