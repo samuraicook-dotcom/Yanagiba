@@ -64,7 +64,10 @@ console = Console()
 class TradingBot:
     """Main orchestrator that runs the 4-agent trading pipeline."""
 
-    def __init__(self, config: TradingConfig | None = None, telegram: TelegramNotifier | None = None):
+    def __init__(
+        self, config: TradingConfig | None = None,
+        telegram: TelegramNotifier | None = None,
+    ):
         self.config = config or TradingConfig()
         self.data_provider = MarketDataProvider(
             self.config.exchange, self.config.sandbox, self.config.market_type,
@@ -645,7 +648,8 @@ class TradingBot:
         max_backoff = 300  # 5 min cap on failure backoff
 
         console.print("[bold green]Yanagiba Trading Bot started[/]")
-        console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
+        mode = "sandbox" if self.config.sandbox else "LIVE"
+        console.print(f"  Exchange: {self.config.exchange} ({mode})")
         console.print(f"  Assets: {', '.join(self.config.assets)}")
         console.print(f"  Interval: {interval_seconds}s")
         console.print(f"  Telegram: {'enabled' if self.telegram.enabled else 'disabled'}")
@@ -829,7 +833,10 @@ def main():
 
     # API keys: check CLI args first, then env vars
     config.api_key = os.environ.get("BINANCE_API_KEY", "")
-    config.api_secret = os.environ.get("BINANCE_API_SECRET", "") or os.environ.get("BINANCE_SECRET", "")
+    config.api_secret = (
+        os.environ.get("BINANCE_API_SECRET", "")
+        or os.environ.get("BINANCE_SECRET", "")
+    )
 
     # Back up .env so power outages don't wipe credentials
     if config.api_key and primary_env.exists():
@@ -889,7 +896,10 @@ def main():
     if telegram.enabled:
         console.print("[bold green]Telegram notifications enabled[/]")
     else:
-        console.print("[dim]Telegram notifications disabled (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env)[/]")
+        console.print(
+            "[dim]Telegram notifications disabled"
+            " (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env)[/]"
+        )
 
     bot = TradingBot(config, telegram=telegram)
 
