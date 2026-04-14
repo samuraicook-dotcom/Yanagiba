@@ -70,6 +70,7 @@ def load_config() -> tuple[dict, dict]:
 
 def build_trading_cycle(
     symbol: str,
+    can_short: bool,
     data_engine,
     technical_engine,
     sentiment_engine,
@@ -112,9 +113,9 @@ def build_trading_cycle(
             # 4. Technical signal
             tech_signal = signal_engine.generate_technical_signal(df)
 
-            # 5. Decision matrix
+            # 5. Decision matrix — pass can_short so MCX assets allow SHORT
             decision = signal_engine.combine_with_sentiment(
-                tech_signal, sentiment["bias"]
+                tech_signal, sentiment["bias"], can_short=can_short
             )
 
             logger.info(
@@ -256,17 +257,29 @@ def main() -> None:
     from core.charges import ChargesCalculator
     charges_calc = ChargesCalculator()
 
-    # 11. Executor
+    # 11. Order guard (duplicate-order prevention)
+    from core.order_guard import OrderGuard
+    order_guard = OrderGuard()
+
+    # 12. Trade learner (adaptive sizing)
+    from core.trade_learner import TradeLearner
+    trade_learner = TradeLearner()
+    trade_learner.load_from_db(db)  # bootstrap from historical trade outcomes
+
+    # 13. Executor
     from core.executor import TradeExecutor
     executor = TradeExecutor(
         broker=broker,
         data_engine=data_engine,
         risk_manager=risk_manager,
         charges_calc=charges_calc,
+        order_guard=order_guard,
+        trade_learner=trade_learner,
         config=config,
         db=db,
         telegram=telegram,
     )
+    executor.start_monitor(poll_interval_seconds=30)
 
     # 12. Scheduler
     from utils.scheduler import KaizenScheduler
@@ -274,10 +287,16 @@ def main() -> None:
 
     assets = [a["symbol"] for a in config["assets"]]
 
+    # Build asset config map for quick lookup
+    asset_map = {a["symbol"]: a for a in config["assets"]}
+
     # Wire up trading cycles — one per asset
     for symbol in assets:
+        asset_cfg = asset_map.get(symbol, {})
+        can_short = asset_cfg.get("can_short", False)
         cycle_fn = build_trading_cycle(
             symbol=symbol,
+            can_short=can_short,
             data_engine=data_engine,
             technical_engine=technical_engine,
             sentiment_engine=sentiment_engine,
@@ -287,6 +306,7 @@ def main() -> None:
             config=config,
         )
         scheduler.add_trading_loop(cycle_fn, [symbol])
+        logger.info("Registered cycle for %s (can_short=%s)", symbol, can_short)
 
     # Sentiment update job
     scheduler.add_sentiment_update(sentiment_engine.update)
@@ -321,6 +341,7 @@ def main() -> None:
     def shutdown(signum, frame):
         logger.info("Shutdown signal received, stopping...")
         executor.square_off_all()
+        executor.stop_monitor()
         scheduler.shutdown(wait=False)
         telegram.send_shutdown("Manual stop (Ctrl+C)")
         sys.exit(0)

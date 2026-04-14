@@ -169,7 +169,10 @@ class SignalEngine:
     # ------------------------------------------------------------------
 
     def combine_with_sentiment(
-        self, tech_signal: dict, sentiment_bias: str
+        self,
+        tech_signal: dict,
+        sentiment_bias: str,
+        can_short: bool = False,
     ) -> dict[str, Any]:
         """
         Apply the decision matrix to combine tech signal and sentiment bias.
@@ -178,14 +181,15 @@ class SignalEngine:
           BUY  + BULLISH  → LONG  (size_factor=1.0)
           BUY  + NEUTRAL  → LONG  (size_factor=0.5)
           BUY  + BEARISH  → REJECT
-          SELL + BEARISH  → SHORT (size_factor=1.0) [logged, not executed]
-          SELL + NEUTRAL  → SHORT (size_factor=0.5) [logged, not executed]
+          SELL + BEARISH  → SHORT (size_factor=1.0)  executable if can_short=True
+          SELL + NEUTRAL  → SHORT (size_factor=0.5)  executable if can_short=True
           SELL + BULLISH  → REJECT
           NONE + any      → HOLD
 
         Args:
             tech_signal: Output of generate_technical_signal()
             sentiment_bias: 'BULLISH', 'BEARISH', or 'NEUTRAL'
+            can_short: True for MCX futures (shorting allowed), False for NSE ETFs
 
         Returns:
             dict: {action, size_factor, signal, bias, executable, reason}
@@ -235,22 +239,26 @@ class SignalEngine:
 
         if signal == SIGNAL_SELL:
             if bias == BIAS_BEARISH:
+                if not can_short:
+                    logger.info("SHORT signal for NSE ETF — logged but not executed")
                 return {
                     "action": ACTION_SHORT,
                     "size_factor": 1.0,
                     "signal": signal,
                     "bias": bias,
-                    "executable": False,  # NSE ETF restriction
-                    "reason": "short_bearish_confirmed_not_executable",
+                    "executable": can_short,
+                    "reason": "short_bearish_confirmed" if can_short else "short_bearish_not_executable_etf",
                 }
             elif bias == BIAS_NEUTRAL:
+                if not can_short:
+                    logger.info("SHORT signal for NSE ETF — logged but not executed")
                 return {
                     "action": ACTION_SHORT,
                     "size_factor": 0.5,
                     "signal": signal,
                     "bias": bias,
-                    "executable": False,  # NSE ETF restriction
-                    "reason": "short_neutral_half_size_not_executable",
+                    "executable": can_short,
+                    "reason": "short_neutral_half_size" if can_short else "short_neutral_not_executable_etf",
                 }
             else:  # BULLISH
                 logger.info("SELL signal REJECTED — sentiment is BULLISH")

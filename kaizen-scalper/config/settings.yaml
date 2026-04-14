@@ -1,12 +1,30 @@
 assets:
+  # NSE ETFs — long only (shorting not possible on NSE)
   - symbol: "GOLDBEES"
     exchange: "NSE"
     lot_size: 1
     avg_spread_pct: 0.15
+    can_short: false
+    asset_type: "etf"
   - symbol: "SILVERBEES"
     exchange: "NSE"
     lot_size: 1
     avg_spread_pct: 0.20
+    can_short: false
+    asset_type: "etf"
+  # MCX Futures — long AND short (requires MCX segment enabled on Kite)
+  - symbol: "GOLDM"
+    exchange: "MCX"
+    lot_size: 10        # 10 grams per lot
+    avg_spread_pct: 0.05
+    can_short: true
+    asset_type: "futures"
+  - symbol: "SILVERM"
+    exchange: "MCX"
+    lot_size: 1         # 1 kg per lot
+    avg_spread_pct: 0.10
+    can_short: true
+    asset_type: "futures"
 
 timeframe:
   candle_interval: "30minute"
@@ -46,7 +64,7 @@ sentiment:
 risk:
   risk_per_trade_pct: 0.25
   max_daily_loss_pct: 1.5
-  max_trades_per_day: 6
+  max_trades_per_day: 12
   consecutive_loss_killswitch: 3
   sl_atr_multiplier: 1.5
   tp_atr_multiplier: 2.0
