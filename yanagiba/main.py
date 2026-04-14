@@ -78,6 +78,7 @@ class TradingBot:
         self.portfolio = self._load_portfolio()
         self._running = False
         self._restart_requested = False
+        self._stop_event: asyncio.Event | None = None
 
     def _load_portfolio(self) -> PortfolioState:
         """Restore portfolio state from disk, or use defaults."""
@@ -483,6 +484,16 @@ class TradingBot:
         console.print("[green]  Preflight checks passed[/]")
         return True
 
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        """Sleep that wakes early when a stop signal is received."""
+        if self._stop_event is None:
+            await asyncio.sleep(seconds)
+            return
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass
+
     async def run_loop(self, interval_seconds: int = 180):
         """Run continuous trading loop with crash resilience.
 
@@ -494,8 +505,18 @@ class TradingBot:
         from yanagiba.data.market_data import ExchangeErrorKind, classify_exchange_error
 
         self._running = True
+        self._stop_event = asyncio.Event()
         consecutive_failures = 0
         max_backoff = 300  # 5 min cap on failure backoff
+
+        loop = asyncio.get_running_loop()
+
+        def _on_stop():
+            self._running = False
+            self._stop_event.set()
+
+        loop.add_signal_handler(signal.SIGINT, _on_stop)
+        loop.add_signal_handler(signal.SIGTERM, _on_stop)
 
         console.print("[bold green]Yanagiba Trading Bot started[/]")
         console.print(f"  Exchange: {self.config.exchange} ({'sandbox' if self.config.sandbox else 'LIVE'})")
@@ -548,13 +569,15 @@ class TradingBot:
                         f"retrying in {backoff}s"
                     )
                     await self.telegram.notify_error("CYCLE", str(e))
-                    await asyncio.sleep(backoff)
+                    await self._interruptible_sleep(backoff)
                     continue  # skip the normal sleep, we already waited
 
-                await asyncio.sleep(interval_seconds)
+                await self._interruptible_sleep(interval_seconds)
         except asyncio.CancelledError:
             pass
         finally:
+            loop.remove_signal_handler(signal.SIGINT)
+            loop.remove_signal_handler(signal.SIGTERM)
             if cmd_task and not cmd_task.done():
                 cmd_task.cancel()
             await self.shutdown()
@@ -660,6 +683,19 @@ def main():
 
     from dotenv import load_dotenv
 
+    if "--help" in sys.argv or "-h" in sys.argv:
+        console.print("[bold]Usage:[/] python -m yanagiba.main [OPTIONS]")
+        console.print()
+        console.print("[bold]Options:[/]")
+        console.print("  [cyan]--live[/]                Enable live trading (requires API keys)")
+        console.print("  [cyan]--exchange[/] NAME       Exchange (binance|bybit, default: binance)")
+        console.print("  [cyan]--market[/] TYPE         Market type (spot|future, default: future)")
+        console.print("  [cyan]--interval[/] SECONDS    Cycle interval in seconds (default: 180)")
+        console.print("  [cyan]--api-key[/] KEY         API key (or set BINANCE_API_KEY in .env)")
+        console.print("  [cyan]--api-secret[/] SECRET   API secret (or BINANCE_API_SECRET in .env)")
+        console.print("  [cyan]-h, --help[/]            Show this message and exit")
+        sys.exit(0)
+
     # Load .env from multiple locations (project dir, home dir, backup, script dir)
     project_root = Path(__file__).resolve().parent.parent
     backup_dir = Path.home() / ".yanagiba"
@@ -746,12 +782,7 @@ def main():
 
     while True:
         loop = asyncio.new_event_loop()
-
-        def handle_signal(*_):
-            bot._running = False
-
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
+        asyncio.set_event_loop(loop)
 
         try:
             loop.run_until_complete(bot.run_loop(interval))
