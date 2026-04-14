@@ -1,0 +1,70 @@
+assets:
+  - symbol: "GOLDBEES"
+    exchange: "NSE"
+    lot_size: 1
+    avg_spread_pct: 0.15
+  - symbol: "SILVERBEES"
+    exchange: "NSE"
+    lot_size: 1
+    avg_spread_pct: 0.20
+
+timeframe:
+  candle_interval: "30minute"
+  lookback_candles: 50
+  market_open: "09:15"
+  market_close: "15:30"
+  no_trade_zones:
+    - start: "09:15"
+      end: "09:45"
+    - start: "15:00"
+      end: "15:30"
+
+technicals:
+  ema_fast: 9
+  ema_slow: 21
+  rsi_period: 7
+  rsi_overbought: 70
+  rsi_oversold: 30
+  vwap: true
+  atr_period: 14
+  volume_spike_multiplier: 1.5
+
+sentiment:
+  enabled: true
+  update_interval_minutes: 30
+  mode: "rss"
+  rss_feeds:
+    - "https://feeds.reuters.com/reuters/businessNews"
+    - "https://feeds.reuters.com/reuters/worldNews"
+    - "https://economictimes.indiatimes.com/rssfeedstopstories.cms"
+  gemini:
+    model: "gemini-2.0-flash"
+    batch_size: 15
+  headline_lookback_hours: 2
+  bias_threshold: 0.3
+
+risk:
+  risk_per_trade_pct: 0.25
+  max_daily_loss_pct: 1.5
+  max_trades_per_day: 6
+  consecutive_loss_killswitch: 3
+  sl_atr_multiplier: 1.5
+  tp_atr_multiplier: 2.0
+  min_rr_ratio: 1.2
+
+execution:
+  order_type: "MARKET"
+  product_type: "MIS"
+  slippage_buffer_pct: 0.05
+  retry_attempts: 3
+  retry_delay_seconds: 2
+  auto_square_off: "15:10"
+
+capital:
+  initial_capital: 100000
+  paper_trade: true
+
+logging:
+  level: "INFO"
+  log_file: "data/kaizen.log"
+  db_path: "data/trades.db"

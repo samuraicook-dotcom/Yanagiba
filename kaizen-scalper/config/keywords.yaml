@@ -1,0 +1,59 @@
+risk_off_bullish:
+  weight: 1
+  keywords:
+    - "war"
+    - "conflict"
+    - "tensions"
+    - "sanctions"
+    - "missile"
+    - "nuclear"
+    - "invasion"
+    - "inflation rises"
+    - "inflation surges"
+    - "cpi higher"
+    - "rate hike"
+    - "hawkish"
+    - "recession"
+    - "banking crisis"
+    - "default"
+    - "debt ceiling"
+    - "geopolitical risk"
+    - "safe haven"
+    - "gold demand"
+    - "central bank buying"
+    - "de-dollarization"
+    - "currency crisis"
+    - "tariff"
+    - "trade war"
+
+risk_on_bearish:
+  weight: -1
+  keywords:
+    - "peace"
+    - "ceasefire"
+    - "rate cut"
+    - "dovish"
+    - "risk appetite"
+    - "equity rally"
+    - "stock surge"
+    - "strong dollar"
+    - "usd strength"
+    - "yields rise"
+    - "bond selloff"
+    - "economic growth"
+    - "gdp beats"
+    - "jobs strong"
+    - "unemployment falls"
+    - "trade deal"
+    - "optimism"
+    - "bull market"
+    - "crypto rally"
+
+amplifiers:
+  weight: 2
+  keywords:
+    - "breaking"
+    - "urgent"
+    - "flash"
+    - "emergency"
+    - "unprecedented"
